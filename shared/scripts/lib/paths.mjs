@@ -9,6 +9,38 @@ export function existingCodexHome() {
 export function codexRuntimeWrites(home) {
     return ["auth.json", "sessions", "tmp"].map((name) => path.join(home, name));
 }
+export function opencodePaths(cwd) {
+    const home = os.homedir();
+    const xdg = (variable, fallback) => {
+        const value = process.env[variable];
+        return value && path.isAbsolute(value) ? value : path.join(home, fallback);
+    };
+    const config = path.join(xdg("XDG_CONFIG_HOME", ".config"), "opencode");
+    const data = path.join(xdg("XDG_DATA_HOME", ".local/share"), "opencode");
+    const cache = path.join(xdg("XDG_CACHE_HOME", ".cache"), "opencode");
+    const state = path.join(xdg("XDG_STATE_HOME", ".local/state"), "opencode");
+    const settings = [
+        config,
+        path.join(cwd, ".opencode"),
+        path.join(cwd, "opencode.json"),
+        path.join(cwd, "opencode.jsonc"),
+    ];
+    for (const key of ["OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR"])
+        if (process.env[key])
+            settings.push(path.resolve(cwd, process.env[key]));
+    const writes = [data, cache, state];
+    if (process.env.OPENCODE_DB) {
+        const database = path.resolve(cwd, process.env.OPENCODE_DB);
+        if (!writes.some((dir) => database.startsWith(dir + path.sep)))
+            writes.push(database, database + "-wal", database + "-shm");
+    }
+    return {
+        auth_file: path.join(data, "auth.json"),
+        agent_config: config,
+        config_paths: [...new Set(settings)],
+        runtime_write_paths: [...new Set(writes)],
+    };
+}
 export function dataRoot(platform = process.platform, env = process.env, home = os.homedir()) {
     const p = path.posix;
     let base;
@@ -33,10 +65,7 @@ export function repositoryPaths(cwd, agent) {
                 codex_home: existingCodexHome(),
                 auth_file: path.join(existingCodexHome(), "auth.json"),
             }
-            : {
-                auth_file: path.join(state, "data", "opencode", "auth.json"),
-                agent_config: path.join(state, "config", "opencode", "opencode.json"),
-            }),
+            : opencodePaths(repository)),
     };
 }
 export function srtPaths() {

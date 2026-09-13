@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import type { Job } from "../job.mjs";
 import { type AgentAdapter, parseObject } from "./types.mjs";
 
@@ -12,6 +13,7 @@ function command(job: Job): string[] {
     job.cwd,
     "--format",
     "json",
+    ...(job.sandbox === "srt" ? ["--auto"] : []),
     ...(job.model ? ["--model", job.model] : []),
     ...(job.session ? ["--session", job.session] : []),
     "--file",
@@ -20,26 +22,51 @@ function command(job: Job): string[] {
 }
 
 function environment(job: Job): NodeJS.ProcessEnv {
-  const permission = {
-    "*": "allow",
-    task: "deny",
-    question: "deny",
-    ...(job.mode === "review" ? { edit: "deny" } : {}),
-  };
-  return {
+  let permission: Record<string, unknown> = {};
+  if (process.env.OPENCODE_PERMISSION) {
+    const input: unknown = JSON.parse(process.env.OPENCODE_PERMISSION);
+    if (typeof input === "string" && ["allow", "ask", "deny"].includes(input))
+      permission = { "*": input };
+    else if (input && typeof input === "object" && !Array.isArray(input))
+      permission = { ...input };
+    else
+      throw new Error(
+        "OPENCODE_PERMISSION must be a permission object or action",
+      );
+
+    const action = (value: unknown) =>
+      typeof value === "string" && ["allow", "ask", "deny"].includes(value);
+    if (
+      !Object.values(permission).every(
+        (rule) =>
+          action(rule) ||
+          (rule &&
+            typeof rule === "object" &&
+            !Array.isArray(rule) &&
+            Object.values(rule).every(action)),
+      )
+    )
+      throw new Error("Invalid OPENCODE_PERMISSION rule");
+  }
+
+  // Reinsert restrictions last: OpenCode permission patterns are order-sensitive.
+  for (const key of ["task", ...(job.mode === "review" ? ["edit"] : [])]) {
+    delete permission[key];
+    permission[key] = "deny";
+  }
+
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
     NODE_USE_ENV_PROXY: "1",
     GIT_OPTIONAL_LOCKS: "0",
     TMPDIR: path.join(job.state_dir, "tmp"),
-    XDG_DATA_HOME: path.join(job.state_dir, "data"),
-    XDG_CONFIG_HOME: path.join(job.state_dir, "config"),
-    XDG_CACHE_HOME: path.join(job.state_dir, "cache"),
-    XDG_STATE_HOME: path.join(job.state_dir, "state"),
-    OPENCODE_CONFIG_CONTENT: JSON.stringify({
-      autoupdate: false,
-      share: "disabled",
-      permission,
-    }),
+    OPENCODE_PERMISSION: JSON.stringify(permission),
   };
+
+  delete env.CODEX_THREAD_ID;
+  delete env.CODEX_SESSION_ID;
+
+  return env;
 }
 
 async function recordEvents(
@@ -97,22 +124,30 @@ async function recordEvents(
 export const opencode: AgentAdapter = {
   skill: "opencode",
   promptViaStdin: false,
-  preflight() {},
+  preflight(executable, sandbox) {
+    if (sandbox !== "srt") return;
+
+    const help = spawnSync(executable, ["run", "--help"], {
+      encoding: "utf8",
+      timeout: 10000,
+    });
+    if (
+      help.error ||
+      help.status !== 0 ||
+      !/--auto\b/.test(help.stdout + help.stderr)
+    )
+      throw new Error(
+        "OpenCode CLI with run --auto support is required for SRT jobs",
+      );
+  },
   prepare(stateDir) {
-    for (const name of [
-      "tmp",
-      "data/opencode",
-      "config/opencode",
-      "cache",
-      "state",
-    ])
-      fs.mkdirSync(path.join(stateDir, name), {
-        recursive: true,
-        mode: 0o700,
-      });
+    fs.mkdirSync(path.join(stateDir, "tmp"), {
+      recursive: true,
+      mode: 0o700,
+    });
   },
   command,
-  cwd: (job) => job.state_dir,
+  cwd: (job) => job.cwd,
   finalize() {},
   environment,
   consumeOutput: recordEvents,

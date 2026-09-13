@@ -37,6 +37,10 @@ test(
       fs.mkdirSync(authHome);
       const auth = path.join(authHome, "auth.json");
       fs.writeFileSync(auth, "initial");
+      const config = path.join(state, "existing-opencode-config");
+      fs.mkdirSync(config);
+      const configFile = path.join(config, "opencode.json");
+      fs.writeFileSync(configFile, '{"permission":"deny"}');
       const original = JSON.stringify({
         network: { allowedDomains: [], deniedDomains: [] },
         filesystem: {
@@ -71,6 +75,7 @@ test(
             directory,
             mode,
             [auth],
+            [config],
           ),
           executable: process.execPath,
         };
@@ -82,13 +87,17 @@ test(
         const fs = require('fs');
         const blocked = (operation) => {
           try { operation(); throw new Error('write unexpectedly succeeded'); }
-          catch (e) { if (!['EACCES','EPERM','EROFS','EBUSY'].includes(e.code)) throw e; }
+          catch (e) { if (!['EACCES','EPERM','EROFS','EBUSY','EXDEV'].includes(e.code)) throw e; }
         };
         blocked(() => fs.writeFileSync(${JSON.stringify(profile)}, 'changed'));
         blocked(() => fs.unlinkSync(${JSON.stringify(profile)}));
+        if (fs.readFileSync(${JSON.stringify(configFile)}, 'utf8') !== '{"permission":"deny"}') throw new Error('configuration not inherited');
+        blocked(() => fs.writeFileSync(${JSON.stringify(configFile)}, '{}'));
+        blocked(() => fs.unlinkSync(${JSON.stringify(configFile)}));
         const replacement = ${JSON.stringify(path.join(state, "replacement"))};
         fs.writeFileSync(replacement, 'changed');
         blocked(() => fs.renameSync(replacement, ${JSON.stringify(profile)}));
+        blocked(() => fs.renameSync(replacement, ${JSON.stringify(configFile)}));
         fs.writeFileSync(${JSON.stringify(path.join(state, "allowed"))}, 'yes');
         fs.writeFileSync(${JSON.stringify(auth)}, 'refreshed');
         ${mode === "review" ? "blocked(() => " : ""}fs.writeFileSync(${JSON.stringify(source)}, 'yes')${mode === "review" ? ")" : ""};
@@ -115,6 +124,10 @@ test(
         assert.equal(result.stdout, path.join(state, "tmp"));
         assert.equal(fs.readFileSync(profile, "utf8"), original);
         assert.equal(fs.readFileSync(auth, "utf8"), "refreshed");
+        assert.equal(
+          fs.readFileSync(configFile, "utf8"),
+          '{"permission":"deny"}',
+        );
         assert.equal(fs.existsSync(source), mode === "implement");
       }
     } finally {

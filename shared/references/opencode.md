@@ -2,14 +2,10 @@
 
 If OpenCode is missing, report that it is not installed and stop. Do not install it or offer an installation workflow as part of delegation.
 
-Use the persistent state directory returned by `prepare.mjs --agent opencode --new-job`. Preparation creates these subdirectories; place approved configuration and credentials at the returned paths:
+OpenCode uses the existing login, XDG directories, environment credentials, and configuration, including `OPENCODE_CONFIG`, `OPENCODE_CONFIG_DIR`, and `OPENCODE_CONFIG_CONTENT`. Preparation reports the normal `auth_file` and configuration directory (`agent_config`); it creates only handler job and temporary directories. Do not copy credentials or request another login merely because `auth_file_present` is false. Report authentication failures without printing credentials.
 
-- `config/opencode/opencode.json` or `.jsonc`: the user's provider and default model configuration.
-- `data/opencode/auth.json`: authentication for credential-based providers, with mode 0600.
-- `tmp/`, `cache/`, and `state/`: private runtime data.
+Existing models, MCP servers, OpenCode plugins, sharing, and update settings are preserved. The runner adds permission denials for further delegation and, in review mode, editing tools. It does not grant blanket permission. With SRT, it uses `run --auto` to approve permission requests while preserving explicit denials; a CLI supporting that option is required. Without SRT, permission requests are rejected by non-interactive OpenCode. Report any resulting incomplete work.
 
-For environment-based credentials, pass only the required named variables through `--pass-env`. Values are not saved in job metadata. Do not print credentials or copy unrelated host configuration, plugins, sessions, or credentials. For missing credentials, follow the approval step in [runtime.md](runtime.md); do not start an interactive login.
-
-No model is forced by the runner. It disables session sharing and further delegation, and denies editing tools in review mode. The prompt is attached once with `--file`; stdin is ignored.
+SRT keeps configuration read-only and permits approved writes to shared authentication and runtime data. If plugin dependencies need installation inside a configuration directory, report the required setup rather than making that directory writable. The prompt is attached once with `--file`; stdin is ignored.
 
 Follow [SRT setup](srt-profile.md) when `prepare.mjs` reports `sandbox: "srt"`, the runner reports an SRT error, or the user explicitly requests SRT setup.

@@ -20,7 +20,11 @@ import {
 
 import { sandboxFor, setSandbox } from "../shared/scripts/lib/config.mjs";
 import { adapterFor } from "../shared/scripts/lib/adapters/index.mjs";
-import { repositoryPaths, srtPaths } from "../shared/scripts/lib/paths.mjs";
+import {
+  repositoryPaths,
+  srtPaths,
+  opencodePaths,
+} from "../shared/scripts/lib/paths.mjs";
 import { checkSrtVersion } from "../shared/scripts/lib/srt.mjs";
 
 const events = [
@@ -76,6 +80,12 @@ function executable(root, name, source) {
 function jobFixture(t, payload = events, exit = 0, queueExit = 0) {
   const fixtureData = fixture(t);
   const { root, repo } = fixtureData;
+  for (const [key, name] of [
+    ["XDG_DATA_HOME", "data"],
+    ["XDG_CACHE_HOME", "cache"],
+    ["XDG_STATE_HOME", "runtime-state"],
+  ])
+    mockEnv(t, key, path.join(root, name));
   const state = path.join(root, "state");
   fs.mkdirSync(state);
   const directory = path.join(state, "job");
@@ -89,7 +99,7 @@ function jobFixture(t, payload = events, exit = 0, queueExit = 0) {
   const srt = executable(
     root,
     "fake-srt",
-    `if (process.argv.includes('--version')) { console.log('0.0.76'); process.exit(0); } if (process.argv.includes('-e')) { process.stdout.write('better-agent-handler-srt-ready'); process.exit(0); } require('fs').writeFileSync(${JSON.stringify(path.join(directory, "invocation.json"))}, JSON.stringify({args: process.argv.slice(2), cwd: process.cwd(), env: process.env})); process.stdout.write(${JSON.stringify(stream)}); process.exitCode=${exit};`,
+    `if (process.argv.includes('--help')) { console.log('--auto'); process.exit(0); } if (process.argv.includes('--version')) { console.log('0.0.76'); process.exit(0); } if (process.argv.includes('-e')) { process.stdout.write('better-agent-handler-srt-ready'); process.exit(0); } require('fs').writeFileSync(${JSON.stringify(path.join(directory, "invocation.json"))}, JSON.stringify({args: process.argv.slice(2), cwd: process.cwd(), env: process.env})); process.stdout.write(${JSON.stringify(stream)}); process.exitCode=${exit};`,
   );
   const codex = executable(
     root,
@@ -101,7 +111,10 @@ function jobFixture(t, payload = events, exit = 0, queueExit = 0) {
     profile,
     JSON.stringify({
       network: { allowedDomains: [] },
-      filesystem: { allowRead: [root] },
+      filesystem: {
+        allowRead: [repo, state, ...opencodePaths(repo).runtime_write_paths],
+        allowWrite: opencodePaths(repo).runtime_write_paths,
+      },
     }),
   );
 
@@ -255,16 +268,13 @@ test("worker success, bounded single notification, environment and duplicate cla
   const invocation = JSON.parse(
     fs.readFileSync(path.join(directory, "invocation.json")),
   );
-  assert.equal(invocation.cwd, job.state_dir);
+  assert.equal(invocation.cwd, job.cwd);
   assert.match(invocation.env.TMPDIR, /^\/tmp\/bah-srt-/);
   assert.equal(fs.existsSync(invocation.env.TMPDIR), false);
   assert.ok(
     invocation.args.includes(`TMPDIR=${path.join(job.state_dir, "tmp")}`),
   );
-  assert.equal(
-    invocation.env.XDG_CACHE_HOME,
-    path.join(job.state_dir, "cache"),
-  );
+  assert.equal(invocation.env.XDG_CACHE_HOME, process.env.XDG_CACHE_HOME);
 
   await assert.rejects(worker(directory), { code: "EEXIST" });
 });
@@ -678,7 +688,7 @@ test("Codex cannot resume its parent and SRT requires approved shared runtime wr
       executionProfile(profile, job.cwd, job.state_dir, directory, "review", [
         path.join(root, "auth.json"),
       ]),
-    /must approve Codex runtime write access/,
+    /must approve agent runtime write access/,
   );
 });
 
@@ -815,6 +825,121 @@ test("OpenCode receives the full prompt once through its attachment and no stdin
   );
 });
 
+test("OpenCode preserves credentials and configuration, auto-approving only SRT jobs", (t) => {
+  const { root, job } = jobFixture(t);
+  const inherited = {
+    HOME: path.join(root, "home"),
+    XDG_CONFIG_HOME: path.join(root, "config"),
+    OPENCODE_CONFIG: "custom.jsonc",
+    OPENCODE_CONFIG_DIR: "custom-config",
+    OPENCODE_CONFIG_CONTENT:
+      '{"model":"custom/model","share":"auto","plugin":["custom-auth"]}',
+    OPENAI_API_KEY: "dummy-secret",
+    OPENCODE_PERMISSION:
+      '{"bash":{"*":"ask","git push*":"deny"},"task":"allow","*":"deny"}',
+  };
+  for (const [key, value] of Object.entries(inherited)) mockEnv(t, key, value);
+  mockEnv(t, "CODEX_THREAD_ID", job.thread);
+  mockEnv(t, "CODEX_SESSION_ID", job.thread);
+
+  const adapter = adapterFor("opencode");
+  for (const sandbox of ["srt", "none"]) {
+    const delegated = {
+      ...job,
+      sandbox,
+      mode: "review",
+      session: "existing-session",
+    };
+    const env = environment(delegated);
+    for (const [key, value] of Object.entries(inherited))
+      if (key !== "OPENCODE_PERMISSION") assert.equal(env[key], value, key);
+
+    assert.equal(env.CODEX_THREAD_ID, undefined);
+    assert.equal(env.CODEX_SESSION_ID, undefined);
+    assert.equal(env.BETTER_AGENT_HANDLER_DEPTH, "1");
+    assert.deepEqual(JSON.parse(env.OPENCODE_PERMISSION), {
+      bash: { "*": "ask", "git push*": "deny" },
+      "*": "deny",
+      task: "deny",
+      edit: "deny",
+    });
+    const args = adapter.command(delegated);
+    assert.equal(args.includes("--auto"), sandbox === "srt");
+    assert.equal(args[args.indexOf("--session") + 1], "existing-session");
+    assert.equal(args.includes("--model"), false);
+  }
+
+  mockEnv(t, "OPENCODE_PERMISSION", '"deny"');
+  assert.equal(JSON.parse(environment(job).OPENCODE_PERMISSION)["*"], "deny");
+  mockEnv(t, "OPENCODE_PERMISSION", '{"bash":"invalid"}');
+  assert.throws(() => environment(job), /Invalid OPENCODE_PERMISSION/);
+});
+
+test("OpenCode preflight requires --auto only with SRT and never invokes a model", (t) => {
+  const { root } = fixture(t);
+  const cli = executable(
+    root,
+    "old-opencode",
+    `
+    require('node:assert/strict').deepEqual(process.argv.slice(2), ['run', '--help']);
+    console.log('run help');
+  `,
+  );
+  const adapter = adapterFor("opencode");
+  assert.throws(() => adapter.preflight(cli, "srt"), /--auto support/);
+  const supported = executable(
+    root,
+    "supported-opencode",
+    "console.error('--auto');",
+  );
+  assert.doesNotThrow(() => adapter.preflight(supported, "srt"));
+  assert.doesNotThrow(() => adapter.preflight("/missing-not-checked", "none"));
+});
+
+test("OpenCode paths use existing XDG locations and require approval for shared writes", (t) => {
+  const { root, repo, job, profile, directory } = jobFixture(t);
+  mockEnv(t, "XDG_CONFIG_HOME", path.join(root, "config"));
+  mockEnv(t, "OPENCODE_CONFIG", "custom.jsonc");
+  mockEnv(t, "OPENCODE_DB", path.join(root, "database", "sessions.db"));
+  const paths = opencodePaths(repo);
+  assert.equal(
+    paths.auth_file,
+    path.join(root, "data", "opencode", "auth.json"),
+  );
+  assert.ok(paths.config_paths.includes(path.join(repo, "custom.jsonc")));
+  assert.ok(
+    paths.runtime_write_paths.includes(process.env.OPENCODE_DB + "-wal"),
+  );
+
+  assert.throws(
+    () =>
+      executionProfile(
+        profile,
+        repo,
+        job.state_dir,
+        directory,
+        "review",
+        paths.runtime_write_paths,
+        paths.config_paths,
+      ),
+    /must approve agent runtime write/,
+  );
+  fs.writeFileSync(path.join(repo, "custom.jsonc"), "{}");
+  const protectedProfile = executionProfile(
+    profile,
+    repo,
+    job.state_dir,
+    directory,
+    "implement",
+    [],
+    paths.config_paths,
+  );
+  const settings = JSON.parse(fs.readFileSync(protectedProfile));
+  assert.ok(
+    settings.filesystem.denyWrite.includes(path.join(repo, "custom.jsonc")),
+  );
+});
+
 test("explicit API credential variables pass through while isolation variables remain reserved", (t) => {
   mockEnv(t, "CODEX_API_KEY", "test-only-credential");
   assert.equal(
@@ -906,6 +1031,13 @@ test("preparation skips SRT for disabled agents and keeps repository paths stabl
   assert.equal(fs.existsSync(codex.state_dir), false);
 
   const opencode = prepare("opencode");
+  assert.equal(opencode.authentication, "inherited");
+  assert.equal(
+    opencode.auth_file,
+    path.join(root, "data", "opencode", "auth.json"),
+  );
+  assert.equal(opencode.agent_config, path.join(root, "config", "opencode"));
+  assert.ok(opencode.srt.config_read_paths.includes(opencode.agent_config));
   assert.equal(opencode.srt.version, "0.0.76");
   assert.deepEqual(opencode.srt.install_argv, [
     "npm",
@@ -925,6 +1057,7 @@ test("preparation skips SRT for disabled agents and keeps repository paths stabl
   );
   const prepared = prepare("opencode", "--new-job");
   assert.equal(prepared.srt, undefined);
+  assert.equal(fs.existsSync(path.join(prepared.state_dir, "data")), false);
   assert.equal(prepared.state_dir, opencode.state_dir);
   assert.equal(fs.statSync(prepared.job_dir).mode & 0o777, 0o700);
   assert.notEqual(prepare("opencode", "--new-job").job_dir, prepared.job_dir);

@@ -33,7 +33,7 @@ try {
             sandbox,
             ...paths,
             auth_file_present: fs.existsSync(paths.auth_file),
-            ...(values.agent === "codex" ? { authentication: "inherited" } : {}),
+            authentication: "inherited",
         };
         // SRT-disabled jobs must not even inspect an SRT installation.
         if (sandbox === "srt") {
@@ -52,7 +52,10 @@ try {
                 profile_present: fs.existsSync(paths.profile),
                 ...("codex_home" in paths
                     ? { runtime_write_paths: codexRuntimeWrites(paths.codex_home) }
-                    : {}),
+                    : {
+                        runtime_write_paths: paths.runtime_write_paths,
+                        config_read_paths: paths.config_paths,
+                    }),
                 ...(error
                     ? {
                         install_argv: [

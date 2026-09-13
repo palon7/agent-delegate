@@ -18,7 +18,7 @@ Use `--agent codex` for Codex. The command creates private directories and retur
 
 - If `sandbox` is `none`, skip all SRT detection, installation, dependencies, and profile setup. Codex still uses its native sandbox and automatic approval reviewer.
 - If `sandbox` is `srt`, follow [SRT setup](srt-profile.md). The `srt` object gives the pinned installation path and any installation command. Obtain approval for missing dependencies and the repository profile before launch. Never disable SRT to work around a failure.
-- Codex inherits existing authentication and configuration; follow [Codex runtime](codex.md). Do not request another login or scan for API keys just because `auth_file_present` is false. For OpenCode, prepare credentials and defaults using [OpenCode runtime](opencode.md), asking before copying credentials and never printing their contents.
+- Both agents inherit existing authentication and configuration; follow [Codex runtime](codex.md) or [OpenCode runtime](opencode.md). Do not request another login or scan for API keys just because `auth_file_present` is false.
 
 State and profiles are reused for the same repository and agent. Check for an existing writer before another implementation. Do not launch a duplicate to discover an earlier job's outcome.
 
@@ -39,7 +39,7 @@ node "$plugin_root/shared/scripts/agent_job.mjs" \
 
 The runner uses the same state, profile, and SRT paths as `prepare.mjs`. For an explicitly approved alternate installation, pass `--srt <absolute-path>`; Node entry points are supported. `--state-dir` and `--profile` accept existing custom paths. `--profile` and `--srt` are ignored when SRT is disabled. Agent executables use PATH or explicit `--executable` and `--codex` paths.
 
-Use `--mode review` for review permissions. For a follow-up, create a new job and pass `--session <saved-session-id>` with the same agent, repository, state directory, and Codex home. Never use global `--continue` or `--last`. Pass explicit model choices with `--model` and Codex configuration profiles with `--codex-profile` (distinct from SRT's `--profile`). Task-local selections are not inferred from shared configuration. OpenCode uses `--pass-env NAME` for required environment credentials; Codex inherits its environment. Values are not saved in job metadata. Parent IDs and isolation variables are reserved.
+Use `--mode review` for review permissions. For a follow-up, create a new job and pass `--session <saved-session-id>` with the same agent, repository, state directory, and authentication/runtime paths. Never use global `--continue` or `--last`. Pass explicit model choices with `--model` and Codex configuration profiles with `--codex-profile` (distinct from SRT's `--profile`). Task-local selections are not inferred from shared configuration. Both agents inherit environment credentials; values are not saved in job metadata. Parent task IDs are excluded from the child environment.
 
 With SRT enabled, the runner checks the version and runs a small Node probe under the job profile before detaching. Dependency, initialization, and profile failures therefore return before agent launch. Fix the reported cause with approval for setup changes, then create a new job. A directory containing `job.json` cannot be reused, including after a failed preflight. A successful probe does not verify provider access or agent authentication.
 

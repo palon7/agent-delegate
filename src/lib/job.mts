@@ -9,6 +9,7 @@ import {
   srtPaths,
   existingCodexHome,
   codexRuntimeWrites,
+  opencodePaths,
 } from "./paths.mjs";
 import { checkSrtVersion, checkSrtExecution, validateProfile } from "./srt.mjs";
 import { gitText, isInside } from "./snapshot.mjs";
@@ -110,7 +111,7 @@ export function assertNotDelegated(depth = 0): void {
     throw new Error("Recursive delegation is disabled");
 }
 
-/** The small environment given to an agent instead of all host variables. */
+/** Validate explicit environment inputs before adapter-specific inheritance. */
 export function jobEnvironment(passEnv: string[]): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of INHERITED_ENV)
@@ -191,7 +192,7 @@ export async function start(args: StartArgs) {
     validateProfile(profile);
   }
 
-  adapter.preflight(executable);
+  adapter.preflight(executable, sandbox);
   assertQueueAvailable(codex);
   // Fail before launch if a passed variable is missing.
   jobEnvironment(args.passEnv);
@@ -216,6 +217,9 @@ export async function start(args: StartArgs) {
     executable,
   };
 
+  // Validate adapter overrides before claiming a job, also without SRT.
+  adapter.environment(job);
+
   // An existing job is never reused, including failed launches.
   if (fs.existsSync(path.join(directory, "job.json")))
     throw new Error("Job already exists; use prepare.mjs --new-job");
@@ -231,13 +235,19 @@ export async function start(args: StartArgs) {
   try {
     adapter.prepare(stateDir);
     if (profile) {
+      const opencode =
+        job.agent === "opencode" ? opencodePaths(cwd) : undefined;
+
       executionProfile(
         profile,
         cwd,
         stateDir,
         directory,
         args.mode,
-        job.codex_home ? codexRuntimeWrites(job.codex_home) : [],
+        job.codex_home
+          ? codexRuntimeWrites(job.codex_home)
+          : opencode!.runtime_write_paths,
+        opencode?.config_paths ?? [],
       );
       checkSrtExecution(srt!, job.srt_settings!, stateDir, {
         ...jobEnvironment(job.pass_env),
@@ -268,11 +278,26 @@ export function executionProfile(
   directory: string,
   mode: Mode,
   runtimeWrites: string[] = [],
+  protectedSettings: string[] = [],
 ): string {
   const settings = JSON.parse(fs.readFileSync(profile, "utf8"));
   const filesystem = (settings.filesystem ??= {});
 
-  // Shared Codex auth/session writes require explicit approval in the source
+  for (const required of protectedSettings.filter((file) =>
+    fs.existsSync(file),
+  )) {
+    if (
+      !(filesystem.allowRead ?? []).some(
+        (allowed: string) =>
+          path.isAbsolute(allowed) && isInside(required, allowed),
+      )
+    )
+      throw new Error(
+        `SRT profile must approve configuration read access: ${required}`,
+      );
+  }
+
+  // Shared auth/session writes require explicit approval in the source
   // profile. Never grant the entire parent home merely to reuse authentication.
   for (const required of runtimeWrites) {
     if (
@@ -282,7 +307,7 @@ export function executionProfile(
       )
     )
       throw new Error(
-        `SRT profile must approve Codex runtime write access: ${required}`,
+        `SRT profile must approve agent runtime write access: ${required}`,
       );
   }
 
@@ -308,6 +333,10 @@ export function executionProfile(
     gitText(cwd, ["rev-parse", "--path-format=absolute", flag]),
   );
   (filesystem.denyWrite ??= []).push(
+    ...protectedSettings.map((file) =>
+      fs.existsSync(file) ? fs.realpathSync(file) : file,
+    ),
+    ...protectedSettings,
     fs.realpathSync(profile),
     path.join(cwd, ".git"),
     ...gitDirectories,

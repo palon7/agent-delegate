@@ -1,4 +1,5 @@
 import type { Job } from "../job.mjs";
+import type { Sandbox } from "../config.mjs";
 
 export interface AgentResult {
   answer: string;
@@ -8,7 +9,7 @@ export interface AgentResult {
 export interface AgentAdapter {
   skill: string;
   promptViaStdin: boolean;
-  preflight(executable: string): void;
+  preflight(executable: string, sandbox?: Sandbox): void;
   prepare(stateDir: string): void;
   command(job: Job): string[];
   cwd(job: Job): string;

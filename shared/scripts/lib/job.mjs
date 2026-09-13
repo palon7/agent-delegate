@@ -4,7 +4,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { sandboxFor } from "./config.mjs";
 import { adapterFor } from "./adapters/index.mjs";
-import { repositoryPaths, srtPaths, existingCodexHome, codexRuntimeWrites, } from "./paths.mjs";
+import { repositoryPaths, srtPaths, existingCodexHome, codexRuntimeWrites, opencodePaths, } from "./paths.mjs";
 import { checkSrtVersion, checkSrtExecution, validateProfile } from "./srt.mjs";
 import { gitText, isInside } from "./snapshot.mjs";
 const INHERITED_ENV = ["PATH", "USER", "LOGNAME", "LANG", "LC_ALL"];
@@ -38,7 +38,7 @@ export function assertNotDelegated(depth = 0) {
             process.env.BETTER_AGENT_HANDLER_DEPTH !== "0"))
         throw new Error("Recursive delegation is disabled");
 }
-/** The small environment given to an agent instead of all host variables. */
+/** Validate explicit environment inputs before adapter-specific inheritance. */
 export function jobEnvironment(passEnv) {
     const env = {};
     for (const key of INHERITED_ENV)
@@ -107,7 +107,7 @@ export async function start(args) {
             throw new Error(`SRT profile is missing: ${profile}. Prepare it with user approval.`);
         validateProfile(profile);
     }
-    adapter.preflight(executable);
+    adapter.preflight(executable, sandbox);
     assertQueueAvailable(codex);
     // Fail before launch if a passed variable is missing.
     jobEnvironment(args.passEnv);
@@ -130,6 +130,8 @@ export async function start(args) {
         srt,
         executable,
     };
+    // Validate adapter overrides before claiming a job, also without SRT.
+    adapter.environment(job);
     // An existing job is never reused, including failed launches.
     if (fs.existsSync(path.join(directory, "job.json")))
         throw new Error("Job already exists; use prepare.mjs --new-job");
@@ -139,7 +141,10 @@ export async function start(args) {
     try {
         adapter.prepare(stateDir);
         if (profile) {
-            executionProfile(profile, cwd, stateDir, directory, args.mode, job.codex_home ? codexRuntimeWrites(job.codex_home) : []);
+            const opencode = job.agent === "opencode" ? opencodePaths(cwd) : undefined;
+            executionProfile(profile, cwd, stateDir, directory, args.mode, job.codex_home
+                ? codexRuntimeWrites(job.codex_home)
+                : opencode.runtime_write_paths, opencode?.config_paths ?? []);
             checkSrtExecution(srt, job.srt_settings, stateDir, {
                 ...jobEnvironment(job.pass_env),
                 ...adapter.environment(job),
@@ -159,14 +164,18 @@ export async function start(args) {
         throw error;
     }
 }
-export function executionProfile(profile, cwd, stateDir, directory, mode, runtimeWrites = []) {
+export function executionProfile(profile, cwd, stateDir, directory, mode, runtimeWrites = [], protectedSettings = []) {
     const settings = JSON.parse(fs.readFileSync(profile, "utf8"));
     const filesystem = (settings.filesystem ??= {});
-    // Shared Codex auth/session writes require explicit approval in the source
+    for (const required of protectedSettings.filter((file) => fs.existsSync(file))) {
+        if (!(filesystem.allowRead ?? []).some((allowed) => path.isAbsolute(allowed) && isInside(required, allowed)))
+            throw new Error(`SRT profile must approve configuration read access: ${required}`);
+    }
+    // Shared auth/session writes require explicit approval in the source
     // profile. Never grant the entire parent home merely to reuse authentication.
     for (const required of runtimeWrites) {
         if (!(filesystem.allowWrite ?? []).some((allowed) => path.isAbsolute(allowed) && isInside(required, allowed)))
-            throw new Error(`SRT profile must approve Codex runtime write access: ${required}`);
+            throw new Error(`SRT profile must approve agent runtime write access: ${required}`);
     }
     filesystem.allowWrite = mode === "implement" ? [stateDir, cwd] : [stateDir];
     filesystem.allowWrite.push(...runtimeWrites);
@@ -179,7 +188,7 @@ export function executionProfile(profile, cwd, stateDir, directory, mode, runtim
             throw new Error(`SRT profile needs a separate allowRead entry for ${required}, without an enclosing read-only directory`);
     }
     const gitDirectories = ["--git-dir", "--git-common-dir"].map((flag) => gitText(cwd, ["rev-parse", "--path-format=absolute", flag]));
-    (filesystem.denyWrite ??= []).push(fs.realpathSync(profile), path.join(cwd, ".git"), ...gitDirectories, ...(mode === "review" ? [cwd] : []));
+    (filesystem.denyWrite ??= []).push(...protectedSettings.map((file) => fs.existsSync(file) ? fs.realpathSync(file) : file), ...protectedSettings, fs.realpathSync(profile), path.join(cwd, ".git"), ...gitDirectories, ...(mode === "review" ? [cwd] : []));
     const target = path.join(directory, "srt.json");
     writeJsonAtomic(target, settings);
     return target;
