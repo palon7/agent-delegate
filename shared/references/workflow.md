@@ -6,7 +6,7 @@ Before launch, select the absolute repository root, read applicable instructions
 
 Write a self-contained `request.md`: objective, repository, exact scope/comparison, constraints, relevant existing edits, baseline path when applicable, and expected final response. Omit the parent task ID; only the worker needs it. The worker appends the shared [task instructions](../prompts/task.md) and, in review mode, [review prompt](../prompts/review.md) automatically.
 
-Use elevated `exec_command` for the detached launcher under the task's existing authorization. State the selected agent and repository; the runner applies the saved sandbox preference. If automatic approval review rejects an action, report the rejected action and reason and ask for explicit permission; do not bypass it.
+Follow the execution-permission guidance in [runtime.md](runtime.md); delegation does not make every preparation command an elevated operation. State the selected agent and repository; the runner applies the saved sandbox preference. If automatic approval review rejects an action, report the rejected action and reason; do not bypass it.
 
 After `started`, report the launch and the returned `sandbox`, then **end the turn**. No polling, waiting, scheduled checks, or intermediate output reads. A single worker notification resumes the originating task. Explicit user status requests may read the known job's state without starting another run.
 

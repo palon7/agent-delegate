@@ -20,6 +20,6 @@ The adapter overrides native sandbox and reviewer settings on every run, includi
 
 Project instructions remain relevant. Recursion protection rejects child calls to the launcher/config CLI through an inherited depth marker and rejects nonzero job depth in the worker. This is protection against accidental delegation, not a security boundary against a process deliberately removing its environment or modifying the runner.
 
-Check `codex exec --help`, `codex exec resume --help`, and `codex features list` without inference. Do not run a paid prompt to check prerequisites.
+The runner checks CLI capabilities without inference. Inspect CLI help separately only to diagnose a reported compatibility issue, using ordinary sandboxed execution. Do not run a paid prompt to check prerequisites.
 
 Sources: [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode), [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference). Capability flags are also checked against the installed CLI; older versions may not support this adapter.

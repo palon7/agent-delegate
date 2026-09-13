@@ -4,7 +4,9 @@ Requires Node.js 22+, Git, the selected agent CLI, and `codex queue`. If OpenCod
 
 ## Prepare
 
-Resolve the repository root with `git -C <selected-path> rev-parse --show-toplevel`. `plugin_root` is two levels above the selected skill directory. Check the selected agent and parent Codex executables before preparing SRT.
+Resolve the repository root with `git -C <selected-path> rev-parse --show-toplevel`. `plugin_root` is two levels above the selected skill directory. Before SRT setup, check the selected agent and parent Codex executables only if their availability is not already established in this task. Leave capability and SRT startup checks to the runner.
+
+Use ordinary sandboxed execution (`sandbox_permissions: "use_default"`) for executable lookups, version/help commands, configuration reads, and other read-only preparation. Do not request escalation merely because the later job may need it. Reuse checks from this task unless the environment changes or a failure calls their result into question.
 
 ```bash
 node "$plugin_root/shared/scripts/prepare.mjs" --cwd "$repository" --agent opencode --new-job
@@ -24,7 +26,7 @@ Write a self-contained `request.md` in `job_dir` with an editing tool. For imple
 
 ## Launch
 
-Run through elevated `exec_command` under the task authorization:
+Run with `exec_command` under the task authorization. Escalate only the operation that requires it: for example, creating private state outside writable roots or launching a worker where the host sandbox prevents SRT initialization or detached execution. Base escalation on an observed restriction or an established host requirement, and state that reason. Keep prerequisite checks out of the escalated command. Do not relaunch a job with an unknown outcome to test whether escalation helps.
 
 ```bash
 node "$plugin_root/shared/scripts/agent_job.mjs" \
