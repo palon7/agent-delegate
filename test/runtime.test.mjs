@@ -24,6 +24,7 @@ import {
   repositoryPaths,
   srtPaths,
   opencodePaths,
+  jobTempRoot,
 } from "../shared/scripts/lib/paths.mjs";
 import { checkSrtVersion } from "../shared/scripts/lib/srt.mjs";
 
@@ -31,6 +32,7 @@ const events = [
   { type: "text", sessionID: "ses_test", part: { text: "final report" } },
   { type: "step_finish", part: { reason: "stop" } },
 ];
+const windows = process.platform === "win32";
 
 function mockEnv(t, key, value) {
   const before = process.env[key];
@@ -46,6 +48,7 @@ function fixture(t) {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
   const repo = path.join(root, "repo with spaces");
+  mockEnv(t, "LOCALAPPDATA", path.join(root, "local"));
   fs.mkdirSync(repo);
   git(repo, ["init", "-q"]);
   git(repo, ["config", "user.name", "Test"]);
@@ -72,7 +75,7 @@ function metadata(repo) {
 }
 
 function executable(root, name, source) {
-  const file = path.join(root, name);
+  const file = path.join(root, name + ".cjs");
   fs.writeFileSync(file, `#!${process.execPath}\n${source}`, { mode: 0o700 });
   return file;
 }
@@ -88,7 +91,7 @@ function jobFixture(t, payload = events, exit = 0, queueExit = 0) {
     mockEnv(t, key, path.join(root, name));
   const state = path.join(root, "state");
   fs.mkdirSync(state);
-  const directory = fs.realpathSync(fs.mkdtempSync("/tmp/delegate-job-"));
+  const directory = fs.mkdtempSync(path.join(jobTempRoot(), "delegate-job-"));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   fs.writeFileSync(path.join(directory, "request.md"), "task");
 
@@ -120,7 +123,7 @@ function jobFixture(t, payload = events, exit = 0, queueExit = 0) {
 
   const job = {
     agent: "opencode",
-    sandbox: "srt",
+    sandbox: windows ? "none" : "srt",
     delegation_depth: 0,
     job_dir: directory,
     state_dir: state,
@@ -171,49 +174,101 @@ test("snapshot preserves staging and Git metadata, includes edits/deletions/new 
   assert.deepEqual(metadata(repo), before);
 });
 
-test("clean snapshot, renames, symlinks, executable and explicit ignored files", (t) => {
+test(
+  "clean snapshot, renames, symlinks, executable and explicit ignored files",
+  { skip: windows && "POSIX file modes and symlinks" },
+  (t) => {
+    const { repo, baseline } = fixture(t);
+    fs.writeFileSync(path.join(repo, "ignored-input"), "before\n");
+    const before = metadata(repo);
+
+    initialize(repo, baseline, ["ignored-input"]);
+    assert.equal(difference(baseline).length, 0);
+    assert.deepEqual(metadata(repo), before);
+
+    fs.renameSync(
+      path.join(repo, "source.txt"),
+      path.join(repo, "renamed.txt"),
+    );
+    fs.symlinkSync("renamed.txt", path.join(repo, "link"));
+    fs.writeFileSync(path.join(repo, "run.sh"), "#!/bin/sh\nexit 0\n", {
+      mode: 0o755,
+    });
+    fs.writeFileSync(path.join(repo, "ignored-input"), "after\n");
+
+    const diff = difference(baseline).toString();
+    for (const text of [
+      "rename to renamed.txt",
+      "new file mode 120000",
+      "new file mode 100755",
+      "+after",
+    ])
+      assert.ok(diff.includes(text));
+  },
+);
+
+test(
+  "snapshot preserves unusual filename bytes and Git clean filters",
+  { skip: windows && "POSIX filenames" },
+  (t) => {
+    const { repo, baseline } = fixture(t);
+    const raw = Buffer.concat([
+      Buffer.from(repo + "/odd\n"),
+      Buffer.from([0xff]),
+    ]);
+    fs.writeFileSync(raw, "before\n");
+    fs.writeFileSync(path.join(repo, ".gitattributes"), "*.txt text eol=lf\n");
+
+    initialize(repo, baseline);
+    fs.writeFileSync(raw, "after\n");
+    fs.writeFileSync(path.join(repo, "source.txt"), "committed\r\n");
+
+    const diff = difference(baseline).toString();
+    assert.ok(diff.includes("+after"));
+    assert.ok(!diff.includes("source.txt"));
+  },
+);
+
+test("snapshot honors Git filemode and emulated symlink settings", (t) => {
   const { repo, baseline } = fixture(t);
-  fs.writeFileSync(path.join(repo, "ignored-input"), "before\n");
-  const before = metadata(repo);
+  fs.writeFileSync(path.join(repo, "script"), "before\n");
+  fs.writeFileSync(path.join(repo, "link"), "old-target");
+  git(repo, ["add", "script"]);
+  git(repo, ["update-index", "--chmod=+x", "script"]);
+  const oid = git(repo, ["hash-object", "-w", "--stdin"], {
+    data: Buffer.from("old-target"),
+  })
+    .toString()
+    .trim();
+  git(repo, ["update-index", "--add", "--cacheinfo", `120000,${oid},link`]);
+  git(repo, ["config", "core.filemode", "false"]);
+  git(repo, ["config", "core.symlinks", "false"]);
 
-  initialize(repo, baseline, ["ignored-input"]);
-  assert.equal(difference(baseline).length, 0);
-  assert.deepEqual(metadata(repo), before);
-
-  fs.renameSync(path.join(repo, "source.txt"), path.join(repo, "renamed.txt"));
-  fs.symlinkSync("renamed.txt", path.join(repo, "link"));
-  fs.writeFileSync(path.join(repo, "run.sh"), "#!/bin/sh\nexit 0\n", {
-    mode: 0o755,
-  });
-  fs.writeFileSync(path.join(repo, "ignored-input"), "after\n");
-
-  const diff = difference(baseline).toString();
-  for (const text of [
-    "rename to renamed.txt",
-    "new file mode 120000",
-    "new file mode 100755",
-    "+after",
-  ])
-    assert.ok(diff.includes(text));
-});
-
-test("snapshot preserves unusual filename bytes and Git clean filters", (t) => {
-  const { repo, baseline } = fixture(t);
-  const raw = Buffer.concat([
-    Buffer.from(repo + "/odd\n"),
-    Buffer.from([0xff]),
-  ]);
-  fs.writeFileSync(raw, "before\n");
-  fs.writeFileSync(path.join(repo, ".gitattributes"), "*.txt text eol=lf\n");
-
+  const original = metadata(repo);
   initialize(repo, baseline);
-  fs.writeFileSync(raw, "after\n");
-  fs.writeFileSync(path.join(repo, "source.txt"), "committed\r\n");
+  assert.equal(difference(baseline).length, 0);
 
+  fs.writeFileSync(path.join(repo, "script"), "after\n");
+  fs.writeFileSync(path.join(repo, "link"), "new-target");
   const diff = difference(baseline).toString();
-  assert.ok(diff.includes("+after"));
-  assert.ok(!diff.includes("source.txt"));
+  assert.match(diff, /100755/);
+  assert.match(diff, /120000/);
+  assert.match(diff, /\+new-target/);
+  assert.doesNotMatch(diff, /old mode|new mode/);
+  assert.deepEqual(metadata(repo), original);
 });
+
+test(
+  "Windows snapshot rejects parent traversal using backslashes",
+  { skip: !windows },
+  (t) => {
+    const { repo, baseline } = fixture(t);
+    assert.throws(
+      () => initialize(repo, baseline, ["..\\outside.txt"]),
+      /relative files/,
+    );
+  },
+);
 
 test("linked worktrees and read-only profile retain network scope", (t) => {
   const { repo, root, baseline } = fixture(t);
@@ -270,11 +325,15 @@ test("worker success, bounded single notification, environment and duplicate cla
     fs.readFileSync(path.join(directory, "invocation.json")),
   );
   assert.equal(invocation.cwd, job.cwd);
-  assert.match(invocation.env.TMPDIR, /^\/tmp\/bah-srt-/);
-  assert.equal(fs.existsSync(invocation.env.TMPDIR), false);
-  assert.ok(
-    invocation.args.includes(`TMPDIR=${path.join(job.state_dir, "tmp")}`),
-  );
+  if (windows) {
+    assert.equal(invocation.env.TMPDIR, path.join(job.state_dir, "tmp"));
+  } else {
+    assert.match(invocation.env.TMPDIR, /^\/tmp\/bah-srt-/);
+    assert.equal(fs.existsSync(invocation.env.TMPDIR), false);
+    assert.ok(
+      invocation.args.includes(`TMPDIR=${path.join(job.state_dir, "tmp")}`),
+    );
+  }
   assert.equal(invocation.env.XDG_CACHE_HOME, process.env.XDG_CACHE_HOME);
 
   await assert.rejects(worker(directory), { code: "EEXIST" });
@@ -390,6 +449,7 @@ test("detached CLI starts once, passes env without saving it, and reports comple
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).status, "started");
+  assert.equal(JSON.parse(result.stdout).sandbox, windows ? "none" : "srt");
   assert.equal((await finished).status, "completed");
 
   assert.ok(
@@ -416,17 +476,32 @@ test("detached CLI starts once, passes env without saving it, and reports comple
 test("persistent sandbox defaults are read-only and explicit changes preserve the other agent", (t) => {
   const { root } = fixture(t);
   const file = path.join(root, "config", "config.json");
-  assert.equal(sandboxFor("opencode", file), "srt");
+  assert.equal(sandboxFor("opencode", file), windows ? "none" : "srt");
   assert.equal(sandboxFor("codex", file), "none");
   assert.equal(fs.existsSync(file), false);
   setSandbox("opencode", "none", file);
-  setSandbox("codex", "srt", file);
+  if (windows)
+    assert.throws(() => setSandbox("codex", "srt", file), /not supported/);
+  else setSandbox("codex", "srt", file);
   assert.equal(sandboxFor("opencode", file), "none");
-  assert.equal(sandboxFor("codex", file), "srt");
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.equal(sandboxFor("codex", file), windows ? "none" : "srt");
+  if (!windows) assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   const before = fs.readFileSync(file);
   sandboxFor("codex", file);
   assert.deepEqual(fs.readFileSync(file), before);
+
+  if (windows) {
+    fs.writeFileSync(
+      file,
+      '{"version":1,"agents":{"opencode":{"sandbox":"srt"}}}',
+    );
+    const explicit = fs.readFileSync(file);
+    assert.throws(() => sandboxFor("opencode", file), /not supported/);
+    assert.deepEqual(fs.readFileSync(file), explicit);
+    setSandbox("opencode", "none", file);
+    assert.equal(sandboxFor("opencode", file), "none");
+  }
+
   fs.writeFileSync(file, '{"version":1,"agents":{"codex":{"sandbox":"typo"}}}');
   assert.throws(() => sandboxFor("codex", file), /Invalid sandbox/);
 });
@@ -504,7 +579,8 @@ test("Codex command preserves explicit model/session, native review policy and c
     "child-session",
   ]);
   job.sandbox = "srt";
-  assert.deepEqual(command(job).slice(0, 4), [
+  assert.deepEqual(command(job).slice(0, 5), [
+    process.execPath,
     job.srt,
     "--settings",
     job.srt_settings,
@@ -695,15 +771,15 @@ test("launch rejects foreign jobs and invalid inputs without creating state", as
   fs.mkdirSync(foreign, { mode: 0o700 });
   fs.writeFileSync(path.join(foreign, "request.md"), "task");
   const alias = directory + "-alias";
-  fs.symlinkSync(foreign, alias);
+  fs.symlinkSync(foreign, alias, "junction");
   t.after(() => fs.unlinkSync(alias));
   for (const jobDir of [foreign, alias]) {
-    await assert.rejects(start({ ...args, jobDir }), /directly inside \/tmp/);
+    await assert.rejects(start({ ...args, jobDir }), /directly inside/);
     assert.equal(fs.existsSync(stateDir), false);
     assert.equal(fs.existsSync(path.join(foreign, "job.json")), false);
   }
   const repoAlias = path.join(root, "repo-alias");
-  fs.symlinkSync(job.cwd, repoAlias);
+  fs.symlinkSync(job.cwd, repoAlias, "junction");
   for (const state of [
     path.join(job.cwd, ".state"),
     path.join(repoAlias, ".state"),
@@ -1009,32 +1085,36 @@ test("missing agent executable reports the prerequisite without a setup referenc
   assert.equal(fs.existsSync(path.join(directory, "notifications")), false);
 });
 
-test("SRT-enabled launch checks executable availability before the profile", async (t) => {
-  const { root, directory, job } = jobFixture(t);
-  job.state_dir = path.join(root, "missing-srt-state");
-  mockEnv(t, "XDG_CONFIG_HOME", path.join(root, "handler-config"));
-  const args = {
-    agent: "opencode",
-    jobDir: directory,
-    stateDir: job.state_dir,
-    cwd: job.cwd,
-    mode: "review",
-    thread: job.thread,
-    codex: job.codex,
-    executable: job.executable,
-    srt: job.srt,
-    passEnv: [],
-  };
-  for (const key of ["codex", "srt", "executable"]) {
-    await assert.rejects(
-      start({ ...args, [key]: path.join(root, "not-installed") }),
-      /Executable not found/,
-    );
-  }
-  await assert.rejects(start(args), /SRT profile is missing/);
-  assert.equal(fs.existsSync(job.state_dir), false);
-  assert.equal(fs.existsSync(path.join(directory, "job.json")), false);
-});
+test(
+  "SRT-enabled launch checks executable availability before the profile",
+  { skip: windows && "SRT is unsupported" },
+  async (t) => {
+    const { root, directory, job } = jobFixture(t);
+    job.state_dir = path.join(root, "missing-srt-state");
+    mockEnv(t, "XDG_CONFIG_HOME", path.join(root, "handler-config"));
+    const args = {
+      agent: "opencode",
+      jobDir: directory,
+      stateDir: job.state_dir,
+      cwd: job.cwd,
+      mode: "review",
+      thread: job.thread,
+      codex: job.codex,
+      executable: job.executable,
+      srt: job.srt,
+      passEnv: [],
+    };
+    for (const key of ["codex", "srt", "executable"]) {
+      await assert.rejects(
+        start({ ...args, [key]: path.join(root, "not-installed") }),
+        /Executable not found/,
+      );
+    }
+    await assert.rejects(start(args), /SRT profile is missing/);
+    assert.equal(fs.existsSync(job.state_dir), false);
+    assert.equal(fs.existsSync(path.join(directory, "job.json")), false);
+  },
+);
 
 test("preparation skips SRT for disabled agents and keeps repository paths stable", (t) => {
   const { root, repo } = fixture(t);
@@ -1065,16 +1145,21 @@ test("preparation skips SRT for disabled agents and keeps repository paths stabl
     path.join(root, "data", "opencode", "auth.json"),
   );
   assert.equal(opencode.agent_config, path.join(root, "config", "opencode"));
-  assert.ok(opencode.srt.config_read_paths.includes(opencode.agent_config));
-  assert.equal(opencode.srt.version, "0.0.76");
-  assert.deepEqual(opencode.srt.install_argv, [
-    "npm",
-    "install",
-    "--prefix",
-    srtPaths().prefix,
-    "--save-exact",
-    "@anthropic-ai/sandbox-runtime@0.0.76",
-  ]);
+  if (windows) {
+    assert.equal(opencode.sandbox, "none");
+    assert.equal(opencode.srt, undefined);
+  } else {
+    assert.ok(opencode.srt.config_read_paths.includes(opencode.agent_config));
+    assert.equal(opencode.srt.version, "0.0.76");
+    assert.deepEqual(opencode.srt.install_argv, [
+      "npm",
+      "install",
+      "--prefix",
+      srtPaths().prefix,
+      "--save-exact",
+      "@anthropic-ai/sandbox-runtime@0.0.76",
+    ]);
+  }
   assert.notEqual(opencode.state_dir, codex.state_dir);
   assert.equal(fs.existsSync(path.join(root, "config")), false);
   assert.equal(fs.existsSync(path.join(root, "data")), false);
@@ -1086,23 +1171,23 @@ test("preparation skips SRT for disabled agents and keeps repository paths stabl
   const prepared = prepare("opencode", "--new-job");
   t.after(() => fs.rmSync(prepared.job_dir, { recursive: true, force: true }));
   assert.equal(fs.existsSync(prepared.state_dir), false);
-  assert.equal(path.dirname(prepared.job_dir), fs.realpathSync("/tmp"));
+  assert.equal(path.dirname(prepared.job_dir), jobTempRoot());
   assert.equal(prepared.srt, undefined);
   assert.equal(fs.existsSync(path.join(prepared.state_dir, "data")), false);
   assert.equal(prepared.state_dir, opencode.state_dir);
-  assert.equal(fs.statSync(prepared.job_dir).mode & 0o777, 0o700);
+  if (!windows) assert.equal(fs.statSync(prepared.job_dir).mode & 0o777, 0o700);
   mockEnv(t, "TMPDIR", path.join(root, "unusable-tmp"));
   const second = prepare("opencode", "--new-job");
   t.after(() => fs.rmSync(second.job_dir, { recursive: true, force: true }));
   assert.notEqual(second.job_dir, prepared.job_dir);
-  assert.equal(path.dirname(second.job_dir), fs.realpathSync("/tmp"));
+  assert.equal(path.dirname(second.job_dir), jobTempRoot());
   assert.deepEqual(
     fs.readFileSync(path.join(root, "config", "delegate", "config.json")),
     config,
   );
 
   const alias = path.join(root, "repo-alias");
-  fs.symlinkSync(repo, alias);
+  fs.symlinkSync(repo, alias, "junction");
   assert.deepEqual(
     repositoryPaths(alias, "opencode"),
     repositoryPaths(repo, "opencode"),
@@ -1138,42 +1223,48 @@ test("SRT package version takes precedence over its unreliable CLI banner", (t) 
   assert.throws(() => checkSrtVersion(cli), /found 0.0.75/);
 });
 
-test("SRT initialization failure records a failed launch without starting an agent", async (t) => {
-  const { root, directory, job, profile } = jobFixture(t);
-  mockEnv(t, "XDG_CONFIG_HOME", path.join(root, "config"));
-  const broken = executable(
-    root,
-    "broken-srt",
-    `
+test(
+  "SRT initialization failure records a failed launch without starting an agent",
+  { skip: windows && "SRT is unsupported" },
+  async (t) => {
+    const { root, directory, job, profile } = jobFixture(t);
+    mockEnv(t, "XDG_CONFIG_HOME", path.join(root, "config"));
+    const broken = executable(
+      root,
+      "broken-srt",
+      `
     if (process.argv.includes('--version')) { console.log('0.0.76'); process.exit(0); }
     console.error('bubblewrap is missing'); process.exit(1);
   `,
-  );
+    );
 
-  const args = {
-    agent: "opencode",
-    jobDir: directory,
-    stateDir: job.state_dir,
-    cwd: job.cwd,
-    mode: "review",
-    thread: job.thread,
-    codex: job.codex,
-    executable: job.executable,
-    srt: broken,
-    profile,
-    passEnv: [],
-  };
+    const args = {
+      agent: "opencode",
+      jobDir: directory,
+      stateDir: job.state_dir,
+      cwd: job.cwd,
+      mode: "review",
+      thread: job.thread,
+      codex: job.codex,
+      executable: job.executable,
+      srt: broken,
+      profile,
+      passEnv: [],
+    };
 
-  await assert.rejects(
-    start(args),
-    /SRT preflight failed before agent launch: bubblewrap is missing/,
-  );
+    await assert.rejects(
+      start(args),
+      /SRT preflight failed before agent launch: bubblewrap is missing/,
+    );
 
-  const state = JSON.parse(fs.readFileSync(path.join(directory, "state.json")));
-  assert.equal(state.status, "launch_failed");
-  assert.equal(state.notification, "not_attempted");
-  await assert.rejects(start(args), /Job already exists/);
+    const state = JSON.parse(
+      fs.readFileSync(path.join(directory, "state.json")),
+    );
+    assert.equal(state.status, "launch_failed");
+    assert.equal(state.notification, "not_attempted");
+    await assert.rejects(start(args), /Job already exists/);
 
-  for (const file of ["worker.log", "invocation.json", "notifications"])
-    assert.equal(fs.existsSync(path.join(directory, file)), false, file);
-});
+    for (const file of ["worker.log", "invocation.json", "notifications"])
+      assert.equal(fs.existsSync(path.join(directory, file)), false, file);
+  },
+);

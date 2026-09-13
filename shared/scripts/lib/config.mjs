@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-export const DEFAULT_SANDBOX = { opencode: "srt", codex: "none" };
+export const DEFAULT_SANDBOX = {
+    opencode: process.platform === "win32" ? "none" : "srt",
+    codex: "none",
+};
 export function isAgent(value) {
     return typeof value === "string" && Object.hasOwn(DEFAULT_SANDBOX, value);
 }
@@ -39,10 +42,17 @@ export function readConfig(file = configPath()) {
     return data;
 }
 export function sandboxFor(agent, file = configPath()) {
-    return readConfig(file).agents[agent]?.sandbox ?? DEFAULT_SANDBOX[agent];
+    const sandbox = readConfig(file).agents[agent]?.sandbox ?? DEFAULT_SANDBOX[agent];
+    assertSandboxSupported(sandbox);
+    return sandbox;
+}
+export function assertSandboxSupported(sandbox) {
+    if (process.platform === "win32" && sandbox === "srt")
+        throw new Error("SRT jobs are not supported on native Windows. Set this agent's sandbox to none, or use WSL2.");
 }
 /** Called only by the explicit configuration command, never by job launch. */
 export function setSandbox(agent, sandbox, file = configPath()) {
+    assertSandboxSupported(sandbox);
     const config = readConfig(file);
     config.agents[agent] = { sandbox };
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });

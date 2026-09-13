@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import type { Job } from "../job.mjs";
 import { type AgentAdapter, parseObject } from "./types.mjs";
+import { executableCommand } from "../executable.mjs";
 
 function codexHome(job: Job): string {
   if (!job.codex_home)
@@ -39,7 +40,9 @@ export const codex: AgentAdapter = {
   skill: "codex",
   promptViaStdin: true,
   preflight(executable) {
-    const help = spawnSync(executable, ["exec", "--help"], {
+    const [program, args] = executableCommand(executable, ["exec", "--help"]);
+    const help = spawnSync(program, args, {
+      windowsHide: true,
       encoding: "utf8",
       timeout: 10000,
     });
@@ -96,15 +99,21 @@ export const codex: AgentAdapter = {
     result.answer = fs.existsSync(final) ? fs.readFileSync(final, "utf8") : "";
   },
   environment(job) {
+    const temporary = path.join(job.state_dir, "tmp");
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       CODEX_HOME: codexHome(job),
-      TMPDIR: path.join(job.state_dir, "tmp"),
+      TMPDIR: temporary,
+      ...(process.platform === "win32"
+        ? {
+            TEMP: temporary,
+            TMP: temporary,
+          }
+        : {}),
     };
 
     delete env.CODEX_THREAD_ID;
     delete env.CODEX_SESSION_ID;
-
     return env;
   },
   async consumeOutput(lines, job, session) {

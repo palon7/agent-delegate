@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { difference, initialize } from "./lib/snapshot.mjs";
 
 process.umask(0o077);
+
 try {
   const { values, positionals } = parseArgs({
     options: {

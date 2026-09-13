@@ -4,7 +4,7 @@ A Codex plugin for delegating work to OpenCode or another Codex session. Codex r
 
 ## Requirements
 
-- Linux, macOS, or WSL2
+- Linux, macOS, Windows, or WSL2
 - Node.js 22+
 - Git
 - Codex CLI
@@ -41,11 +41,13 @@ If you don't specify a review scope, the skill checks unstaged and untracked fil
 
 OpenCode uses SRT (Anthropic Sandbox Runtime) by default. Codex uses its own sandbox and automatic approval review.
 
+SRT is not supported on native Windows, so both agents run without it there. Use WSL2 if you need SRT.
+
 You can enable or disable SRT for each agent. SRT must be installed when enabled; disabling it for OpenCode removes shell and network isolation.
 
 Ask Codex to change the setting (for example, “Disable SRT for OpenCode”), or edit `~/.config/delegate/config.json`. If `XDG_CONFIG_HOME` is set, use `$XDG_CONFIG_HOME/delegate/config.json` instead. Codex changes this preference only when you request it.
 
-The following configuration matches the defaults used when no file exists. Set an agent's `sandbox` to `"srt"` to enable SRT or `"none"` to disable it:
+The following configuration matches the defaults used when no file exists (on Windows, both default to `"none"`). Set an agent's `sandbox` to `"srt"` to enable SRT or `"none"` to disable it:
 
 ```json
 {
@@ -61,7 +63,7 @@ Both agents use your existing login and settings. OpenCode automatically approve
 
 When SRT is enabled, Codex asks permission to install any missing dependencies and configure access to files and network destinations. Runs without SRT need no SRT setup.
 
-Job requests, baselines, reports, and status live in private directories under `/tmp`, independent of `$TMPDIR`. Keep them until the parent finishes reviewing the result, then remove them. Settings and agent session/runtime state remain persistent. Routine preparation needs only temporary writes; when host permissions require it, the launch command requests approval for agent execution, runtime writes, and completion notification together.
+Job requests, baselines, reports, and status live in private directories under `/tmp` (your temporary directory on Windows), independent of `$TMPDIR`. Keep them until the parent finishes reviewing the result, then remove them. Settings and agent session/runtime state remain persistent. Routine preparation needs only temporary writes; when host permissions require it, the launch command requests approval for agent execution, runtime writes, and completion notification together.
 
 ## Development
 

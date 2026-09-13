@@ -3,6 +3,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import type { Job } from "../job.mjs";
 import { type AgentAdapter, parseObject } from "./types.mjs";
+import { executableCommand } from "../executable.mjs";
 
 function command(job: Job): string[] {
   return [
@@ -55,17 +56,23 @@ function environment(job: Job): NodeJS.ProcessEnv {
     permission[key] = "deny";
   }
 
+  const temporary = path.join(job.state_dir, "tmp");
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     NODE_USE_ENV_PROXY: "1",
     GIT_OPTIONAL_LOCKS: "0",
-    TMPDIR: path.join(job.state_dir, "tmp"),
+    TMPDIR: temporary,
+    ...(process.platform === "win32"
+      ? {
+          TEMP: temporary,
+          TMP: temporary,
+        }
+      : {}),
     OPENCODE_PERMISSION: JSON.stringify(permission),
   };
 
   delete env.CODEX_THREAD_ID;
   delete env.CODEX_SESSION_ID;
-
   return env;
 }
 
@@ -127,7 +134,9 @@ export const opencode: AgentAdapter = {
   preflight(executable, sandbox) {
     if (sandbox !== "srt") return;
 
-    const help = spawnSync(executable, ["run", "--help"], {
+    const [program, args] = executableCommand(executable, ["run", "--help"]);
+    const help = spawnSync(program, args, {
+      windowsHide: true,
       encoding: "utf8",
       timeout: 10000,
     });

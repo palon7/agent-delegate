@@ -2,18 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { SRT_VERSION } from "./paths.mjs";
-/** Node entry points avoid npm's platform-specific shell shims. */
-export function srtCommand(cli) {
-    return /\.[cm]?js$/i.test(cli) ? [process.execPath, cli] : [cli];
-}
+import { executableCommand } from "./executable.mjs";
 // SRT creates Unix sockets here. Do not inherit the agent's potentially long
 // TMPDIR or the host's user-specific macOS temporary directory.
 export function createSrtTemp() {
     return fs.mkdtempSync("/tmp/bah-srt-");
 }
 export function sandboxCommand(cli, settings, agentTmp, command) {
+    const [program, args] = executableCommand(cli);
     return [
-        ...srtCommand(cli),
+        program,
+        ...args,
         "--settings",
         settings,
         "--",
@@ -36,8 +35,8 @@ export function checkSrtVersion(cli) {
             return;
         }
     }
-    const [program, ...args] = srtCommand(cli);
-    const result = spawnSync(program, [...args, "--version"], {
+    const [program, args] = executableCommand(cli, ["--version"]);
+    const result = spawnSync(program, args, {
         encoding: "utf8",
         timeout: 10000,
         killSignal: "SIGKILL",

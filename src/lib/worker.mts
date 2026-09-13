@@ -10,10 +10,11 @@ import {
   saveState,
   withLogFile,
 } from "./job.mjs";
-
 import { sandboxCommand, createSrtTemp } from "./srt.mjs";
 import { adapterFor } from "./adapters/index.mjs";
 import { fileURLToPath } from "node:url";
+import { executableCommand } from "./executable.mjs";
+import { assertSandboxSupported } from "./config.mjs";
 
 export function command(job: Job): string[] {
   const command = adapterFor(job.agent).command(job);
@@ -64,9 +65,9 @@ export async function worker(directory: string): Promise<void> {
   try {
     if (job.delegation_depth !== 0)
       throw new Error("Recursive delegation is disabled");
+    assertSandboxSupported(job.sandbox);
 
     const temporary = job.sandbox === "srt" ? createSrtTemp() : undefined;
-
     try {
       await runAgent(job, directory, state, temporary);
     } finally {
@@ -95,8 +96,10 @@ async function runAgent(
     mode: 0o600,
   });
   await withLogFile(path.join(directory, "stderr.log"), async (log) => {
-    const [program, ...args] = command(job);
-    const child = spawn(program!, args, {
+    const [executable, ...agentArgs] = command(job);
+    const [program, args] = executableCommand(executable!, agentArgs);
+    const child = spawn(program, args, {
+      windowsHide: true,
       cwd: adapter.cwd(job),
       env: { ...environment(job), ...(srtTemp ? { TMPDIR: srtTemp } : {}) },
       stdio: [adapter.promptViaStdin ? "pipe" : "ignore", "pipe", log],
@@ -149,17 +152,21 @@ async function notify(job: Job, directory: string, state: State) {
     "Do not inspect the session transcript. Continue the authorized task. Do not rerun this job or load the entire log.";
 
   try {
+    const [program, args] = executableCommand(job.codex, [
+      "queue",
+      "--thread",
+      job.thread,
+      "--message",
+      message,
+    ]);
     const result = await withLogFile(path.join(directory, "queue.log"), (log) =>
-      spawnSync(
-        job.codex,
-        ["queue", "--thread", job.thread, "--message", message],
-        {
-          cwd: job.cwd,
-          stdio: ["ignore", log, log],
-          timeout: 30000,
-          killSignal: "SIGKILL",
-        },
-      ),
+      spawnSync(program, args, {
+        windowsHide: true,
+        cwd: job.cwd,
+        stdio: ["ignore", log, log],
+        timeout: 30000,
+        killSignal: "SIGKILL",
+      }),
     );
     if (result.error) throw result.error;
 

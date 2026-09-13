@@ -66,6 +66,7 @@ async function main(): Promise<void> {
 }
 
 process.umask(0o077);
+
 try {
   await main();
 } catch (error) {

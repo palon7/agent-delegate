@@ -56,17 +56,21 @@ export function dataRoot(
   env: NodeJS.ProcessEnv = process.env,
   home = os.homedir(),
 ): string {
-  const p = path.posix;
+  const p = platform === "win32" ? path.win32 : path.posix;
   let base: string;
-
-  if (platform === "darwin")
+  if (platform === "win32")
+    base = env.LOCALAPPDATA || p.join(home, "AppData", "Local");
+  else if (platform === "darwin")
     base = p.join(home, "Library", "Application Support");
   else base = env.XDG_DATA_HOME || p.join(home, ".local", "share");
 
   if (!p.isAbsolute(base))
     throw new Error("Handler data directory must be absolute");
-
   return p.join(base, "delegate");
+}
+
+export function jobTempRoot(): string {
+  return fs.realpathSync(process.platform === "win32" ? os.tmpdir() : "/tmp");
 }
 
 export function repositoryPaths(cwd: string, agent: AgentName) {
@@ -89,7 +93,6 @@ export function repositoryPaths(cwd: string, agent: AgentName) {
 
 export function srtPaths() {
   const prefix = path.join(dataRoot(), "tools", "srt", SRT_VERSION);
-
   return {
     prefix,
     cli: path.join(

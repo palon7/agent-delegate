@@ -20,6 +20,7 @@ export function git(
   }: { env?: NodeJS.ProcessEnv; data?: Buffer; allowed?: number[] } = {},
 ): Buffer {
   const result = spawnSync("git", ["-C", cwd.toString(), ...args], {
+    windowsHide: true,
     env,
     input: data,
     maxBuffer: 128 * 1024 * 1024,
@@ -90,7 +91,14 @@ export function initialize(
     path.join(snapshot, "objects/info/alternates"),
     `${objects}\n`,
   );
-  const info: SnapshotInfo = { cwd: repository, include };
+
+  const info: SnapshotInfo = {
+    cwd: repository,
+    include:
+      process.platform === "win32"
+        ? include.map((p) => p.replaceAll("\\", "/"))
+        : include,
+  };
   fs.writeFileSync(
     path.join(snapshot, "snapshot.json"),
     JSON.stringify(info) + "\n",
@@ -111,8 +119,36 @@ export function capture(directory: string, label: string): string {
   const env = snapshotEnvironment(snapshot);
 
   git(cwd, ["update-index", "--refresh"], { env, allowed: [0, 1] });
+
+  const modes = new Map<string, string>();
+  for (const record of splitNulTerminated(
+    git(cwd, ["ls-files", "--stage", "-z"], { env }),
+  )) {
+    const tab = record.indexOf(9);
+    modes.set(
+      record.subarray(tab + 1).toString("hex"),
+      record.subarray(0, 6).toString(),
+    );
+  }
+  const fileMode =
+    gitText(cwd, ["config", "--bool", "--get", "core.filemode"], {
+      allowed: [0, 1],
+    }) !== "false";
+  const symlinks =
+    gitText(cwd, ["config", "--bool", "--get", "core.symlinks"], {
+      allowed: [0, 1],
+    }) !== "false";
+
   const entries = candidatePaths(cwd, include, env).map((name) =>
-    indexEntry(cwd, name, include, env),
+    indexEntry(
+      cwd,
+      name,
+      include,
+      env,
+      modes.get(name.toString("hex")),
+      fileMode,
+      symlinks,
+    ),
   );
   if (entries.length)
     git(cwd, ["update-index", "-z", "--index-info"], {
@@ -184,6 +220,9 @@ function indexEntry(
   name: Buffer,
   include: string[],
   env: NodeJS.ProcessEnv,
+  trackedMode: string | undefined,
+  fileMode: boolean,
+  symlinks: boolean,
 ): Buffer {
   const text = name.toString();
   if (path.isAbsolute(text) || text.split("/").includes(".."))
@@ -207,9 +246,17 @@ function indexEntry(
     return entry("120000", storeObject(cwd, env, ["--stdin"], target), name);
   }
   if (stat.isFile()) {
+    if (!symlinks && trackedMode === "120000")
+      return entry(
+        "120000",
+        storeObject(cwd, env, ["--stdin"], fs.readFileSync(absolute)),
+        name,
+      );
+
     // Let Git read the file so large files need not be loaded into JS memory.
     const oid = storeObject(cwd, env, ["--stdin-paths"], quotePath(absolute));
-    return entry(stat.mode & 0o111 ? "100755" : "100644", oid, name);
+    const executable = fileMode ? stat.mode & 0o111 : trackedMode === "100755";
+    return entry(executable ? "100755" : "100644", oid, name);
   }
   throw new Error(`unsupported file type: ${text}`);
 }

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseObject } from "./types.mjs";
+import { executableCommand } from "../executable.mjs";
 function command(job) {
     return [
         job.executable,
@@ -41,11 +42,18 @@ function environment(job) {
         delete permission[key];
         permission[key] = "deny";
     }
+    const temporary = path.join(job.state_dir, "tmp");
     const env = {
         ...process.env,
         NODE_USE_ENV_PROXY: "1",
         GIT_OPTIONAL_LOCKS: "0",
-        TMPDIR: path.join(job.state_dir, "tmp"),
+        TMPDIR: temporary,
+        ...(process.platform === "win32"
+            ? {
+                TEMP: temporary,
+                TMP: temporary,
+            }
+            : {}),
         OPENCODE_PERMISSION: JSON.stringify(permission),
     };
     delete env.CODEX_THREAD_ID;
@@ -103,7 +111,9 @@ export const opencode = {
     preflight(executable, sandbox) {
         if (sandbox !== "srt")
             return;
-        const help = spawnSync(executable, ["run", "--help"], {
+        const [program, args] = executableCommand(executable, ["run", "--help"]);
+        const help = spawnSync(program, args, {
+            windowsHide: true,
             encoding: "utf8",
             timeout: 10000,
         });

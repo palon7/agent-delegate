@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import path from "node:path";
 import { parseArgs } from "node:util";
 import { isAgent, sandboxFor } from "./lib/config.mjs";
 import {
@@ -7,6 +8,7 @@ import {
   srtPaths,
   SRT_VERSION,
   codexRuntimeWrites,
+  jobTempRoot,
 } from "./lib/paths.mjs";
 import { assertNotDelegated } from "./lib/job.mjs";
 import { checkSrtVersion } from "./lib/srt.mjs";
@@ -29,10 +31,6 @@ try {
     assertNotDelegated();
     if (!values.cwd || !isAgent(values.agent))
       throw new Error("--cwd and --agent opencode|codex are required");
-    if (process.platform === "win32")
-      throw new Error(
-        "Native Windows execution is not supported by this runner. Use WSL2; do not install native SRT for a handler job.",
-      );
 
     const paths = repositoryPaths(values.cwd, values.agent);
     const sandbox = sandboxFor(values.agent);
@@ -84,7 +82,9 @@ try {
     }
 
     if (values["new-job"]) {
-      result.job_dir = fs.realpathSync(fs.mkdtempSync("/tmp/delegate-job-"));
+      result.job_dir = fs.mkdtempSync(
+        path.join(jobTempRoot(), "delegate-job-"),
+      );
     }
 
     console.log(JSON.stringify(result, null, 2));

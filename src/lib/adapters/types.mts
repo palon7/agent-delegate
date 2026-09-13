@@ -6,6 +6,7 @@ export interface AgentResult {
   errors: unknown[];
   finishReason?: string;
 }
+
 export interface AgentAdapter {
   skill: string;
   promptViaStdin: boolean;
@@ -22,6 +23,7 @@ export interface AgentAdapter {
   ): Promise<AgentResult>;
   validateCompletion(code: number | null, result: AgentResult): boolean;
 }
+
 export function parseObject(line: string): Record<string, any> | undefined {
   try {
     const value: unknown = JSON.parse(line);

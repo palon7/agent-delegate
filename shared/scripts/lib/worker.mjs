@@ -6,6 +6,8 @@ import { assertNotDelegated, jobEnvironment, saveState, withLogFile, } from "./j
 import { sandboxCommand, createSrtTemp } from "./srt.mjs";
 import { adapterFor } from "./adapters/index.mjs";
 import { fileURLToPath } from "node:url";
+import { executableCommand } from "./executable.mjs";
+import { assertSandboxSupported } from "./config.mjs";
 export function command(job) {
     const command = adapterFor(job.agent).command(job);
     if (job.sandbox === "none")
@@ -39,6 +41,7 @@ export async function worker(directory) {
     try {
         if (job.delegation_depth !== 0)
             throw new Error("Recursive delegation is disabled");
+        assertSandboxSupported(job.sandbox);
         const temporary = job.sandbox === "srt" ? createSrtTemp() : undefined;
         try {
             await runAgent(job, directory, state, temporary);
@@ -64,8 +67,10 @@ async function runAgent(job, directory, state, srtTemp) {
         mode: 0o600,
     });
     await withLogFile(path.join(directory, "stderr.log"), async (log) => {
-        const [program, ...args] = command(job);
+        const [executable, ...agentArgs] = command(job);
+        const [program, args] = executableCommand(executable, agentArgs);
         const child = spawn(program, args, {
+            windowsHide: true,
             cwd: adapter.cwd(job),
             env: { ...environment(job), ...(srtTemp ? { TMPDIR: srtTemp } : {}) },
             stdio: [adapter.promptViaStdin ? "pipe" : "ignore", "pipe", log],
@@ -108,7 +113,15 @@ async function notify(job, directory, state) {
         `Continue under $delegate:${skill} using report.md and, when needed, the diff against the saved baseline. ` +
         "Do not inspect the session transcript. Continue the authorized task. Do not rerun this job or load the entire log.";
     try {
-        const result = await withLogFile(path.join(directory, "queue.log"), (log) => spawnSync(job.codex, ["queue", "--thread", job.thread, "--message", message], {
+        const [program, args] = executableCommand(job.codex, [
+            "queue",
+            "--thread",
+            job.thread,
+            "--message",
+            message,
+        ]);
+        const result = await withLogFile(path.join(directory, "queue.log"), (log) => spawnSync(program, args, {
+            windowsHide: true,
             cwd: job.cwd,
             stdio: ["ignore", log, log],
             timeout: 30000,

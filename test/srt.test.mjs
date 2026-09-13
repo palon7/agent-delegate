@@ -15,8 +15,10 @@ test(
   "real SRT supports long state paths and protects the approved profile",
   {
     skip:
-      !process.env.SRT_TEST_CLI &&
-      "Set SRT_TEST_CLI to an installed SRT 0.0.76 entry point",
+      process.platform === "win32"
+        ? "SRT is unsupported on Windows"
+        : !process.env.SRT_TEST_CLI &&
+          "Set SRT_TEST_CLI to an installed SRT 0.0.76 entry point",
   },
   () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "bah-integration-"));

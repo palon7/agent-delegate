@@ -16,7 +16,7 @@ Agent Delegate is disabled through per-plugin CLI settings, covering the standar
 
 ## State and resuming
 
-`prepare.mjs --agent codex --new-job` creates only a private job directory under `/tmp`. Launch creates persistent runtime logs, SQLite storage, and runtime temporary directories. Preparation reports the existing `codex_home` and `authentication: "inherited"`. Do not create or authenticate a separate Codex home.
+`prepare.mjs --agent codex --new-job` creates only a job directory under `/tmp` on POSIX systems or the user's temporary directory on Windows. Launch creates persistent runtime logs, SQLite storage, and runtime temporary directories. Preparation reports the existing `codex_home` and `authentication: "inherited"`. Do not create or authenticate a separate Codex home.
 
 Authentication and Codex session files remain in the existing `CODEX_HOME`. This is not full filesystem isolation from other Codex sessions. Resume only a child session recorded by this handler for the same repository and Codex home, using a fresh job and its explicit session ID. Never use `--last` or the parent session; the launcher rejects the parent task ID.
 

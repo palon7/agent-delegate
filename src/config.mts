@@ -8,7 +8,9 @@ import {
   setSandbox,
 } from "./lib/config.mjs";
 import { assertNotDelegated } from "./lib/job.mjs";
+
 process.umask(0o077);
+
 try {
   const { values } = parseArgs({
     options: {
@@ -17,6 +19,7 @@ try {
       help: { type: "boolean" },
     },
   });
+
   if (values.help) {
     console.log(
       "config.mjs [--agent opencode|codex --sandbox srt|none] (change only at the user's request)",
@@ -28,6 +31,7 @@ try {
       !["srt", "none"].includes(values.sandbox ?? "")
     )
       throw new Error("Required: --agent opencode|codex --sandbox srt|none");
+
     setSandbox(values.agent, values.sandbox as "srt" | "none");
     console.log(JSON.stringify({ file: configPath(), config: readConfig() }));
   } else {

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseObject } from "./types.mjs";
+import { executableCommand } from "../executable.mjs";
 function codexHome(job) {
     if (!job.codex_home)
         throw new Error("Missing saved Codex home; prepare a new job");
@@ -28,7 +29,9 @@ export const codex = {
     skill: "codex",
     promptViaStdin: true,
     preflight(executable) {
-        const help = spawnSync(executable, ["exec", "--help"], {
+        const [program, args] = executableCommand(executable, ["exec", "--help"]);
+        const help = spawnSync(program, args, {
+            windowsHide: true,
             encoding: "utf8",
             timeout: 10000,
         });
@@ -81,10 +84,17 @@ export const codex = {
         result.answer = fs.existsSync(final) ? fs.readFileSync(final, "utf8") : "";
     },
     environment(job) {
+        const temporary = path.join(job.state_dir, "tmp");
         const env = {
             ...process.env,
             CODEX_HOME: codexHome(job),
-            TMPDIR: path.join(job.state_dir, "tmp"),
+            TMPDIR: temporary,
+            ...(process.platform === "win32"
+                ? {
+                    TEMP: temporary,
+                    TMP: temporary,
+                }
+                : {}),
         };
         delete env.CODEX_THREAD_ID;
         delete env.CODEX_SESSION_ID;

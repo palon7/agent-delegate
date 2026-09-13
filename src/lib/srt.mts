@@ -2,11 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { SRT_VERSION } from "./paths.mjs";
-
-/** Node entry points avoid npm's platform-specific shell shims. */
-export function srtCommand(cli: string): string[] {
-  return /\.[cm]?js$/i.test(cli) ? [process.execPath, cli] : [cli];
-}
+import { executableCommand } from "./executable.mjs";
 
 // SRT creates Unix sockets here. Do not inherit the agent's potentially long
 // TMPDIR or the host's user-specific macOS temporary directory.
@@ -20,8 +16,10 @@ export function sandboxCommand(
   agentTmp: string,
   command: string[],
 ): string[] {
+  const [program, args] = executableCommand(cli);
   return [
-    ...srtCommand(cli),
+    program,
+    ...args,
     "--settings",
     settings,
     "--",
@@ -51,18 +49,16 @@ export function checkSrtVersion(cli: string): void {
         throw new Error(
           `SRT ${SRT_VERSION} is required at ${cli}; found ${pkg.version}`,
         );
-
       return;
     }
   }
 
-  const [program, ...args] = srtCommand(cli);
-  const result = spawnSync(program!, [...args, "--version"], {
+  const [program, args] = executableCommand(cli, ["--version"]);
+  const result = spawnSync(program, args, {
     encoding: "utf8",
     timeout: 10000,
     killSignal: "SIGKILL",
   });
-
   if (
     result.error ||
     result.status !== 0 ||
@@ -96,7 +92,6 @@ export function checkSrtExecution(
       timeout: 20000,
       killSignal: "SIGKILL",
     });
-
     if (result.error || result.status !== 0 || result.stdout !== marker)
       throw new Error(
         `SRT preflight failed before agent launch: ${result.error ?? (result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`)}`,
@@ -108,7 +103,6 @@ export function checkSrtExecution(
 
 export function validateProfile(file: string): void {
   const profile = JSON.parse(fs.readFileSync(file, "utf8"));
-
   if (
     !profile ||
     typeof profile !== "object" ||

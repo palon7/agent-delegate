@@ -17,7 +17,7 @@ Use only when `prepare.mjs` reports `sandbox: "srt"`, a start attempt reports an
    For OpenCode, allow reading the existing `srt.config_read_paths`. The runner protects these paths from writes, including in implementation mode. Additional files referenced by configuration or plugins need their own approved access. If plugin dependencies require writing a configuration directory, arrange that setup separately with approval; do not loosen the job profile.
 4. Install and write only what was approved, validate without model inference, then continue the authorized task. Report a declined setup request as a blocker.
 
-SRT 0.0.76 supports native Windows as an alpha feature, using an elevated `windows-install` step and a dedicated sandbox account. This runner still relies on POSIX permissions and process handling. Use WSL2 and the Linux setup; do not install native SRT for a handler job. Native Windows support needs separate runner work and testing.
+This runner supports SRT only on Linux, macOS, and WSL2. Native Windows jobs default to no SRT for both agents. Although SRT 0.0.76 has upstream Windows alpha support, this integration does not support it; do not install native SRT for a handler job. Explicit saved SRT settings fail on Windows and must not be silently changed.
 
 See the [upstream platform requirements](https://github.com/anthropics/sandbox-runtime/tree/v0.0.76#platform-specific-dependencies); the release's dependency checker restricts ripgrep to Linux.
 

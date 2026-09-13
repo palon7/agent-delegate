@@ -4,7 +4,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { sandboxFor } from "./config.mjs";
 import { adapterFor } from "./adapters/index.mjs";
-import { repositoryPaths, srtPaths, existingCodexHome, codexRuntimeWrites, opencodePaths, } from "./paths.mjs";
+import { repositoryPaths, srtPaths, existingCodexHome, codexRuntimeWrites, opencodePaths, jobTempRoot, } from "./paths.mjs";
+import { executableCommand, resolveExecutable } from "./executable.mjs";
 import { checkSrtVersion, checkSrtExecution, validateProfile } from "./srt.mjs";
 import { gitText, isInside } from "./snapshot.mjs";
 const INHERITED_ENV = ["PATH", "USER", "LOGNAME", "LANG", "LC_ALL"];
@@ -61,8 +62,12 @@ export function jobEnvironment(passEnv) {
         "OPENCODE_CONFIG_CONTENT",
         "OPENCODE_CONFIG_DIR",
     ]);
+    if (process.platform === "win32") {
+        for (const key of ["TEMP", "TMP", "USERPROFILE", "LOCALAPPDATA", "APPDATA"])
+            reserved.add(key);
+    }
     for (const key of passEnv) {
-        if (reserved.has(key))
+        if (reserved.has(process.platform === "win32" ? key.toUpperCase() : key))
             throw new Error(`Reserved child environment variable: ${key}`);
         if (process.env[key] === undefined)
             throw new Error(`Missing environment variable: ${key}`);
@@ -74,8 +79,6 @@ export async function start(args) {
     assertNotDelegated(args.delegationDepth);
     if (args.codexProfile && args.agent !== "codex")
         throw new Error("--codex-profile requires --agent codex");
-    if (process.platform === "win32")
-        throw new Error("Native Windows job execution is not supported. Use WSL2.");
     const sandbox = sandboxFor(args.agent);
     const adapter = adapterFor(args.agent);
     const defaults = repositoryPaths(args.cwd, args.agent);
@@ -90,8 +93,8 @@ export async function start(args) {
         args.session &&
         parseThreadId(args.session) === thread)
         throw new Error("Cannot resume the parent Codex task as a delegated session");
-    const codex = resolveExecutable(args.codex);
-    const executable = resolveExecutable(args.executable ?? args.agent);
+    const codex = resolveExecutable(args.codex, "@openai/codex");
+    const executable = resolveExecutable(args.executable ?? args.agent, args.agent === "codex" ? "@openai/codex" : "opencode-ai");
     const srt = sandbox === "srt"
         ? args.srt
             ? resolveExecutable(args.srt)
@@ -212,9 +215,10 @@ function resolveFutureDirectory(value) {
     }
 }
 function validateDirectories(directory, stateDir, cwd) {
-    if (path.dirname(directory) !== fs.realpathSync("/tmp") ||
+    const tempRoot = jobTempRoot();
+    if (path.dirname(directory) !== tempRoot ||
         !/^delegate-job-.+$/.test(path.basename(directory)))
-        throw new Error("job-dir must be a delegate-job-* directory directly inside /tmp");
+        throw new Error(`job-dir must be a delegate-job-* directory directly inside ${tempRoot}`);
     if (isInside(stateDir, cwd) || isInside(cwd, stateDir))
         throw new Error("state-dir and repository must be separate, non-nested directories");
     if (isInside(directory, cwd) ||
@@ -222,9 +226,10 @@ function validateDirectories(directory, stateDir, cwd) {
         isInside(stateDir, directory))
         throw new Error("job-dir must be separate from the repository and must not contain state-dir");
     const stat = fs.statSync(directory);
-    if (!stat.isDirectory() ||
-        stat.uid !== process.getuid?.() ||
-        stat.mode & 0o077)
+    if (!stat.isDirectory())
+        throw new Error("job-dir must be a directory");
+    if (process.platform !== "win32" &&
+        (stat.uid !== process.getuid?.() || stat.mode & 0o077))
         throw new Error("job-dir must be owned by this user with mode 0700");
     if (!fs.statSync(path.join(directory, "request.md")).isFile())
         throw new Error("job-dir must contain request.md");
@@ -239,26 +244,10 @@ function parseThreadId(value) {
         return undefined;
     return hex.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
 }
-function resolveExecutable(value) {
-    const candidates = value.includes("/")
-        ? [path.resolve(value)]
-        : (process.env.PATH ?? "")
-            .split(path.delimiter)
-            .map((p) => path.resolve(p, value));
-    for (const candidate of candidates) {
-        try {
-            fs.accessSync(candidate, fs.constants.X_OK);
-            if (fs.statSync(candidate).isFile())
-                return candidate;
-        }
-        catch {
-            /* try next PATH entry */
-        }
-    }
-    throw new Error(`Executable not found: ${value}. The required tool is not installed or not available at the specified path.`);
-}
 function assertQueueAvailable(codex) {
-    const check = spawnSync(codex, ["queue", "--help"], {
+    const [program, args] = executableCommand(codex, ["queue", "--help"]);
+    const check = spawnSync(program, args, {
+        windowsHide: true,
         stdio: ["ignore", "ignore", "pipe"],
         timeout: 10000,
         killSignal: "SIGKILL",
@@ -273,6 +262,7 @@ async function launchWorker(directory, stateDir, log) {
         cwd: stateDir,
         stdio: ["ignore", log, log],
         detached: true,
+        windowsHide: true,
     });
     await new Promise((resolve, reject) => {
         child.once("spawn", resolve);

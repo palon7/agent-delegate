@@ -1,6 +1,6 @@
 # Runtime
 
-Requires Node.js 22+, Git, the selected agent CLI, and `codex queue`. If OpenCode or Codex is missing, report that it is not installed and stop; do not install it. Use Linux, macOS, or WSL2. Native Windows jobs are not supported by this runner.
+Requires Node.js 22+, Git, the selected agent CLI, and `codex queue`. If OpenCode or Codex is missing, report that it is not installed and stop; do not install it. Linux, macOS, Windows, and WSL2 are supported. Native Windows defaults to no SRT for both agents and rejects explicit SRT settings.
 
 ## Prepare
 
@@ -12,7 +12,7 @@ Use ordinary sandboxed execution (`sandbox_permissions: "use_default"`) for exec
 node "$plugin_root/shared/scripts/prepare.mjs" --cwd "$repository" --agent opencode --new-job
 ```
 
-Use `--agent codex` for Codex. With `--new-job`, the command creates only a private, unique job directory directly under `/tmp` (mode 0700), independently of `$TMPDIR`. It returns `job_dir`, persistent `state_dir`, `auth_file`, the SRT `profile`, and the resolved `sandbox`. It also returns OpenCode's `agent_config` or the existing `codex_home`. Persistent runtime directories are created at launch. Omit `--new-job` to inspect paths without creating directories. Keep the returned paths; do not invent state locations or interpret the configuration yourself.
+Use `--agent codex` for Codex. With `--new-job`, the command creates only a unique job directory: directly under `/tmp` (mode 0700), independently of `$TMPDIR`, on Linux/macOS/WSL2; under the user's temporary directory with inherited permissions on Windows. No Windows ACL setup or elevation is needed for ordinary temporary preparation. It returns `job_dir`, persistent `state_dir`, `auth_file`, the SRT `profile`, and the resolved `sandbox`. It also returns OpenCode's `agent_config` or the existing `codex_home`. Persistent runtime directories are created at launch. Omit `--new-job` to inspect paths without creating directories. Keep the returned paths; do not invent state locations or interpret the configuration yourself.
 
 `auth_file_present` reports file presence only. When SRT is enabled, `srt` contains its installation paths, `profile_present`, any version error and installation command, and Linux `required_tools`. That list names requirements; it does not check whether they are installed.
 
@@ -22,7 +22,7 @@ Use `--agent codex` for Codex. With `--new-job`, the command creates only a priv
 
 State and profiles are reused for the same repository and agent. Check for an existing writer before another implementation. Do not launch a duplicate to discover an earlier job's outcome.
 
-Write a self-contained `request.md` directly in `job_dir` with an editing tool. Keep requests, baselines, and other job artifacts there; do not stage them in the repository or copy them into persistent storage. For implementation, save the baseline before launch and include its path in the request. Use ordinary sandboxed execution for this preparation. If `/tmp` is blocked, report the actual restriction instead of changing sandbox settings. Ask for changes or findings, checks and results, and any blocker in the final response. Intermediate tool output is discarded.
+Write a self-contained `request.md` directly in `job_dir` with an editing tool. Keep requests, baselines, and other job artifacts there; do not stage them in the repository or copy them into persistent storage. For implementation, save the baseline before launch and include its path in the request. Use ordinary sandboxed execution for this preparation. If the temporary directory is blocked, report the actual restriction instead of changing sandbox settings. Ask for changes or findings, checks and results, and any blocker in the final response. Intermediate tool output is discarded.
 
 ## Launch
 
@@ -37,7 +37,9 @@ node "$plugin_root/shared/scripts/agent_job.mjs" \
   --thread "$CODEX_THREAD_ID"
 ```
 
-The runner uses the same state, profile, and SRT paths as `prepare.mjs`. Job directories must resolve to a `delegate-job-*` directory directly under the real `/tmp`, owned by this user with mode 0700. For an explicitly approved alternate installation, pass `--srt <absolute-path>`; Node entry points are supported. `--state-dir` accepts a custom path and is created after preflight checks; `--profile` requires an existing file. Initial SRT setup creates its state directory before writing the profile. `--profile` and `--srt` are ignored when SRT is disabled. Agent executables use PATH or explicit `--executable` and `--codex` paths.
+The runner uses the same state, profile, and SRT paths as `prepare.mjs`. Job directories must resolve to a `delegate-job-*` directory directly under the platform's temporary root described above. POSIX systems also require ownership by this user and mode 0700. For an explicitly approved alternate installation, pass `--srt <absolute-path>`; Node entry points are supported. `--state-dir` accepts a custom path and is created after preflight checks; `--profile` requires an existing file. Initial SRT setup creates its state directory before writing the profile. `--profile` and `--srt` are ignored when SRT is disabled. Agent executables use PATH or explicit `--executable` and `--codex` paths.
+
+In PowerShell, use a single-line launch command (or PowerShell continuation syntax), and `$env:CODEX_THREAD_ID` for the parent ID. `(Get-Command codex).Source` supplies an explicit `--codex` path; also pass it as `--executable` for a Codex job. For OpenCode, use `(Get-Command opencode).Source` as `--executable`. Native executables and standard npm `.cmd`/`.ps1` wrappers are supported; npm wrappers resolve to Node entry points without a command shell. Custom script wrappers must be replaced by an explicit `.exe` or Node entry point.
 
 Use `--mode review` for review permissions. For a follow-up, create a new job and pass `--session <saved-session-id>` with the same agent, repository, state directory, and authentication/runtime paths. Never use global `--continue` or `--last`. Pass explicit model choices with `--model` and Codex configuration profiles with `--codex-profile` (distinct from SRT's `--profile`). Task-local selections are not inferred from shared configuration. Both agents inherit environment credentials; values are not saved in job metadata. Parent task IDs are excluded from the child environment.
 
@@ -47,7 +49,7 @@ On `started`, report the launch and returned `sandbox`, then **end the turn**. T
 
 ## Saved preference
 
-`prepare.mjs` and `agent_job.mjs` read `$XDG_CONFIG_HOME/delegate/config.json`, falling back to `~/.config/delegate/config.json`. Missing entries mean OpenCode=`srt`, Codex=`none`; reading them does not write a file. Each job records its resolved value. Follow-ups read the current saved setting; if it differs from the previous job, use it and report the change rather than rewriting it.
+`prepare.mjs` and `agent_job.mjs` read `$XDG_CONFIG_HOME/delegate/config.json`, falling back to `~/.config/delegate/config.json`. Missing entries mean OpenCode=`srt`, Codex=`none` on Linux/macOS/WSL2, and both=`none` on Windows; reading them does not write a file. Explicit SRT settings on Windows fail without installation or fallback. Each job records its resolved value. Follow-ups read the current saved setting; if it differs from the previous job, use it and report the change rather than rewriting it.
 
 Only change the preference when the user requests it:
 

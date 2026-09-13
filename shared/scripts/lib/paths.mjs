@@ -42,15 +42,20 @@ export function opencodePaths(cwd) {
     };
 }
 export function dataRoot(platform = process.platform, env = process.env, home = os.homedir()) {
-    const p = path.posix;
+    const p = platform === "win32" ? path.win32 : path.posix;
     let base;
-    if (platform === "darwin")
+    if (platform === "win32")
+        base = env.LOCALAPPDATA || p.join(home, "AppData", "Local");
+    else if (platform === "darwin")
         base = p.join(home, "Library", "Application Support");
     else
         base = env.XDG_DATA_HOME || p.join(home, ".local", "share");
     if (!p.isAbsolute(base))
         throw new Error("Handler data directory must be absolute");
     return p.join(base, "delegate");
+}
+export function jobTempRoot() {
+    return fs.realpathSync(process.platform === "win32" ? os.tmpdir() : "/tmp");
 }
 export function repositoryPaths(cwd, agent) {
     const repository = fs.realpathSync(cwd);
