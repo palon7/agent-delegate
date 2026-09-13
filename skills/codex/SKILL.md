@@ -7,6 +7,8 @@ description: Delegate implementation, review, or another explicitly requested ta
 
 Use a separate Codex CLI session while the parent Codex coordinates and assesses the result. Updating this plugin or explaining the skill does not authorize a model run.
 
+Resolve relative links from the directory containing this `SKILL.md`. The plugin root is two levels above that directory; shared references are in `<plugin_root>/shared/references/`.
+
 Read the shared [workflow](../../shared/references/workflow.md) and [runtime](../../shared/references/runtime.md). Follow the implementation or review route relevant to the request. Launch the shared runner with `--agent codex`.
 
 - Reuse existing authentication, configuration, and environment as described in [Codex runtime](../../shared/references/codex.md). Do not create a separate login. Pass explicit model/profile choices through `--model` and `--codex-profile`. If Codex is missing, report that it is not installed and stop; do not install it.

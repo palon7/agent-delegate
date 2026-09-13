@@ -7,6 +7,8 @@ description: Delegate implementation, review, or another requested task to OpenC
 
 Use OpenCode while the parent Codex coordinates and assesses the result. Updating this plugin or explaining the skill does not authorize a model run.
 
+Resolve relative links from the directory containing this `SKILL.md`. The plugin root is two levels above that directory; shared references are in `<plugin_root>/shared/references/`.
+
 Read the shared [workflow](../../shared/references/workflow.md) and [runtime](../../shared/references/runtime.md). Follow the implementation or review route relevant to the request. Launch the shared runner with `--agent opencode`.
 
 - Use the user's existing OpenCode authentication and settings. Add `--model <provider/model>` only for an explicit model choice; never silently substitute a provider/model.
