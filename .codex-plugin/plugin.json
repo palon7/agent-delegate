@@ -1,6 +1,6 @@
 {
   "name": "delegate",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Delegate work to external agents, end the Codex turn, and resume on completion without polling.",
   "author": {
     "name": "palon7",
