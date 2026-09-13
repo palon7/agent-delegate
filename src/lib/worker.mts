@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
+import { Readable } from "node:stream";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   type Job,
   type State,
@@ -91,57 +93,100 @@ async function runAgent(
 ): Promise<void> {
   const adapter = adapterFor(job.agent);
   const input = prompt(job);
-  fs.writeFileSync(path.join(directory, "prompt.md"), input, {
+  const promptFile = path.join(directory, "prompt.md");
+  const outputFile = path.join(directory, "events.jsonl");
+  fs.writeFileSync(promptFile, input, {
     flag: "wx",
     mode: 0o600,
   });
-  await withLogFile(path.join(directory, "stderr.log"), async (log) => {
-    const [executable, ...agentArgs] = command(job);
-    const [program, args] = executableCommand(executable!, agentArgs);
-    const child = spawn(program, args, {
-      windowsHide: true,
-      cwd: adapter.cwd(job),
-      env: { ...environment(job), ...(srtTemp ? { TMPDIR: srtTemp } : {}) },
-      stdio: [adapter.promptViaStdin ? "pipe" : "ignore", "pipe", log],
-    });
-    // Register immediately: a spawn error may occur before the stream ends.
-    const exit = new Promise<{ code: number | null; error?: Error }>(
-      (resolve) => {
-        child.once("error", (error) => resolve({ code: null, error }));
-        child.once("close", (code) => resolve({ code }));
-      },
-    );
-
-    if (adapter.promptViaStdin) {
-      child.stdin!.on("error", () => {
-        /* process exit is authoritative */
-      });
-      child.stdin!.end(input);
-    }
-    const result = await adapter.consumeOutput(
-      createInterface({ input: child.stdout! }),
-      job,
-      (id) => {
-        if (state.session_id !== id) {
-          state.session_id = id;
-          saveState(directory, state);
+  try {
+    await withLogFile(path.join(directory, "stderr.log"), async (log) => {
+      await withLogFile(outputFile, async (output) => {
+        const [executable, ...agentArgs] = command(job);
+        const [program, args] = executableCommand(executable!, agentArgs);
+        const stdin = adapter.promptViaStdin
+          ? fs.openSync(promptFile, "r")
+          : "ignore";
+        let child;
+        try {
+          child = spawn(program, args, {
+            windowsHide: true,
+            cwd: adapter.cwd(job),
+            env: {
+              ...environment(job),
+              ...(srtTemp ? { TMPDIR: srtTemp } : {}),
+            },
+            stdio: [stdin, output, log],
+          });
+        } finally {
+          if (typeof stdin === "number") fs.closeSync(stdin);
         }
-      },
-    );
-    const { code, error } = await exit;
-    adapter.finalize(job, result);
-    const { answer, errors, finishReason } = result;
-    fs.writeFileSync(path.join(directory, "report.md"), answer + "\n");
-    if (error) throw error;
 
-    const completed = adapter.validateCompletion(code, result);
-    state.exit_code = code;
-    state.status = completed ? "completed" : "failed";
-    state.errors = errors;
-    state.finish_reason = finishReason;
-    if (!completed)
-      state.error = `${job.agent} failed, reported an error, or returned no final text`;
-  });
+        // Register immediately: a spawn error may occur before process close.
+        let finished = false;
+        const exit = new Promise<{
+          code: number | null;
+          error?: Error;
+        }>((resolve) => {
+          child.once("error", (error) => resolve({ code: null, error }));
+          child.once("close", (code) => resolve({ code }));
+        }).then((result) => {
+          finished = true;
+          return result;
+        });
+        const result = await adapter.consumeOutput(
+          createInterface({
+            input: Readable.from(followOutput(outputFile, () => finished)),
+          }),
+          job,
+          (id) => {
+            if (state.session_id !== id) {
+              state.session_id = id;
+              saveState(directory, state);
+            }
+          },
+        );
+        const { code, error } = await exit;
+        adapter.finalize(job, result);
+        const { answer, errors, finishReason } = result;
+        fs.writeFileSync(path.join(directory, "report.md"), answer + "\n");
+        if (error) throw error;
+
+        const completed = adapter.validateCompletion(code, result);
+        state.exit_code = code;
+        state.status = completed ? "completed" : "failed";
+        state.errors = errors;
+        state.finish_reason = finishReason;
+        if (!completed)
+          state.error = `${job.agent} failed, reported an error, or returned no final text`;
+      });
+    });
+  } finally {
+    fs.rmSync(outputFile, { force: true });
+  }
+}
+
+// Read appended bytes while the agent runs, including the final bytes on exit.
+async function* followOutput(file: string, finished: () => boolean) {
+  const descriptor = fs.openSync(file, "r");
+  const buffer = Buffer.alloc(64 * 1024);
+  let position = 0;
+  try {
+    for (;;) {
+      const done = finished();
+      const count = fs.readSync(descriptor, buffer, 0, buffer.length, position);
+      if (count) {
+        position += count;
+        yield Buffer.from(buffer.subarray(0, count));
+      } else if (done) {
+        return;
+      } else {
+        await delay(50);
+      }
+    }
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 async function notify(job: Job, directory: string, state: State) {

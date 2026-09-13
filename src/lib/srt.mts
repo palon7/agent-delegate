@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { SRT_VERSION } from "./paths.mjs";
 import { executableCommand } from "./executable.mjs";
+import { spawnSyncCaptured } from "./spawn.mjs";
 
 // SRT creates Unix sockets here. Do not inherit the agent's potentially long
 // TMPDIR or the host's user-specific macOS temporary directory.
@@ -54,18 +54,17 @@ export function checkSrtVersion(cli: string): void {
   }
 
   const [program, args] = executableCommand(cli, ["--version"]);
-  const result = spawnSync(program, args, {
-    encoding: "utf8",
+  const result = spawnSyncCaptured(program, args, {
     timeout: 10000,
     killSignal: "SIGKILL",
   });
   if (
     result.error ||
     result.status !== 0 ||
-    result.stdout.trim() !== SRT_VERSION
+    result.stdout.toString().trim() !== SRT_VERSION
   )
     throw new Error(
-      `SRT ${SRT_VERSION} is required at ${cli}: ${result.error ?? (result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`)}`,
+      `SRT ${SRT_VERSION} is required at ${cli}: ${result.error ?? (result.stderr.toString().trim() || result.stdout.toString().trim() || `exit ${result.status}`)}`,
     );
 }
 
@@ -85,16 +84,19 @@ export function checkSrtExecution(
   const temporary = createSrtTemp();
 
   try {
-    const result = spawnSync(program!, args, {
+    const result = spawnSyncCaptured(program!, args, {
       cwd,
       env: { ...env, TMPDIR: temporary },
-      encoding: "utf8",
       timeout: 20000,
       killSignal: "SIGKILL",
     });
-    if (result.error || result.status !== 0 || result.stdout !== marker)
+    if (
+      result.error ||
+      result.status !== 0 ||
+      result.stdout.toString() !== marker
+    )
       throw new Error(
-        `SRT preflight failed before agent launch: ${result.error ?? (result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`)}`,
+        `SRT preflight failed before agent launch: ${result.error ?? (result.stderr.toString().trim() || result.stdout.toString().trim() || `exit ${result.status}`)}`,
       );
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });

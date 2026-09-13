@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { parseObject } from "./types.mjs";
 import { executableCommand } from "../executable.mjs";
+import { spawnSyncCaptured } from "../spawn.mjs";
 function command(job) {
     return [
         job.executable,
@@ -112,14 +112,13 @@ export const opencode = {
         if (sandbox !== "srt")
             return;
         const [program, args] = executableCommand(executable, ["run", "--help"]);
-        const help = spawnSync(program, args, {
+        const help = spawnSyncCaptured(program, args, {
             windowsHide: true,
-            encoding: "utf8",
             timeout: 10000,
         });
         if (help.error ||
             help.status !== 0 ||
-            !/--auto\b/.test(help.stdout + help.stderr))
+            !/--auto\b/.test(help.stdout.toString() + help.stderr.toString()))
             throw new Error("OpenCode CLI with run --auto support is required for SRT jobs");
     },
     prepare(stateDir) {

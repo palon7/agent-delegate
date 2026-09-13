@@ -1,10 +1,10 @@
 // Compare working files without changing the repository's index or object store.
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawnSyncCaptured } from "./spawn.mjs";
 const NULL_OID = "0".repeat(40);
 export function git(cwd, args, { env = process.env, data, allowed = [0], } = {}) {
-    const result = spawnSync("git", ["-C", cwd.toString(), ...args], {
+    const result = spawnSyncCaptured("git", ["-C", cwd.toString(), ...args], {
         windowsHide: true,
         env,
         input: data,

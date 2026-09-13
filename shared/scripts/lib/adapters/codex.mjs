@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { parseObject } from "./types.mjs";
 import { executableCommand } from "../executable.mjs";
+import { spawnSyncCaptured } from "../spawn.mjs";
 function codexHome(job) {
     if (!job.codex_home)
         throw new Error("Missing saved Codex home; prepare a new job");
@@ -30,9 +30,8 @@ export const codex = {
     promptViaStdin: true,
     preflight(executable) {
         const [program, args] = executableCommand(executable, ["exec", "--help"]);
-        const help = spawnSync(program, args, {
+        const help = spawnSyncCaptured(program, args, {
             windowsHide: true,
-            encoding: "utf8",
             timeout: 10000,
         });
         if (help.error ||

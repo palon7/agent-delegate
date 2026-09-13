@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { executionProfile } from "../shared/scripts/lib/job.mjs";
 import { command, environment } from "../shared/scripts/lib/worker.mjs";
+import { spawnSyncCaptured } from "../shared/scripts/lib/spawn.mjs";
 import {
   checkSrtExecution,
   createSrtTemp,
@@ -31,7 +31,7 @@ test(
       fs.mkdirSync(repo);
       fs.mkdirSync(directory, { recursive: true });
       fs.mkdirSync(path.join(state, "tmp"), { recursive: true });
-      const git = spawnSync("git", ["init", "-q", repo]);
+      const git = spawnSyncCaptured("git", ["init", "-q", repo]);
       assert.equal(git.status, 0);
 
       const profile = path.join(state, "srt-profile.json");
@@ -115,7 +115,7 @@ test(
           "-e",
           script,
         );
-        const result = spawnSync(args[0], args.slice(1), {
+        const result = spawnSyncCaptured(args[0], args.slice(1), {
           cwd: state,
           env: { ...env, TMPDIR: temporary },
           encoding: "utf8",
@@ -123,7 +123,7 @@ test(
         });
 
         assert.equal(result.status, 0, result.stderr);
-        assert.equal(result.stdout, path.join(state, "tmp"));
+        assert.equal(result.stdout.toString(), path.join(state, "tmp"));
         assert.equal(fs.readFileSync(profile, "utf8"), original);
         assert.equal(fs.readFileSync(auth, "utf8"), "refreshed");
         assert.equal(

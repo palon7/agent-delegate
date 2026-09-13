@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { spawnSyncCaptured } from "../shared/scripts/lib/spawn.mjs";
 import {
   git,
   initialize,
@@ -443,7 +443,7 @@ test("detached CLI starts once, passes env without saving it, and reports comple
     });
   });
 
-  const result = spawnSync(process.execPath, args, {
+  const result = spawnSyncCaptured(process.execPath, args, {
     ...options,
     timeout: 5000,
   });
@@ -462,7 +462,7 @@ test("detached CLI starts once, passes env without saving it, and reports comple
   );
   assert.equal(invocation.env.HANDLER_TEST_SECRET, "secret-value");
 
-  const duplicate = spawnSync(process.execPath, args, options);
+  const duplicate = spawnSyncCaptured(process.execPath, args, options);
   assert.notEqual(duplicate.status, 0);
   assert.equal(
     fs
@@ -595,6 +595,38 @@ test("Codex command preserves explicit model/session, native review policy and c
     () => command(job),
     /unsupported marketplace name: invalid.market/,
   );
+});
+
+test("worker saves the session before the agent exits", async (t) => {
+  const f = jobFixture(t);
+  f.job.sandbox = "none";
+  f.job.executable = executable(
+    f.root,
+    "live-session-agent",
+    `
+    const fs = require('fs');
+    process.stdout.write(JSON.stringify({type:'text',sessionID:'live-session',part:{text:'done'}})+'\\n');
+    const deadline = Date.now() + 5000;
+    const timer = setInterval(() => {
+      const state = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(f.directory, "state.json"))}, 'utf8'));
+      if (state.session_id === 'live-session') {
+        clearInterval(timer);
+        process.stdout.write(JSON.stringify({type:'step_finish',part:{reason:'stop'}})+'\\n');
+      } else if (Date.now() > deadline) {
+        clearInterval(timer);
+        process.exitCode = 1;
+      }
+    }, 20);
+  `,
+  );
+  fs.writeFileSync(path.join(f.directory, "job.json"), JSON.stringify(f.job));
+  await worker(f.directory);
+  const state = JSON.parse(
+    fs.readFileSync(path.join(f.directory, "state.json"), "utf8"),
+  );
+  assert.equal(state.session_id, "live-session");
+  assert.equal(state.status, "completed");
+  assert.equal(fs.existsSync(path.join(f.directory, "events.jsonl")), false);
 });
 
 async function codexJob(
@@ -1124,7 +1156,7 @@ test("preparation skips SRT for disabled agents and keeps repository paths stabl
     new URL("../shared/scripts/prepare.mjs", import.meta.url),
   );
   const prepare = (agent, ...args) => {
-    const result = spawnSync(
+    const result = spawnSyncCaptured(
       process.execPath,
       [entry, "--cwd", repo, "--agent", agent, ...args],
       { encoding: "utf8" },

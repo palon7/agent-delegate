@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import type { Job } from "../job.mjs";
 import { type AgentAdapter, parseObject } from "./types.mjs";
 import { executableCommand } from "../executable.mjs";
+import { spawnSyncCaptured } from "../spawn.mjs";
 
 function codexHome(job: Job): string {
   if (!job.codex_home)
@@ -41,9 +41,8 @@ export const codex: AgentAdapter = {
   promptViaStdin: true,
   preflight(executable) {
     const [program, args] = executableCommand(executable, ["exec", "--help"]);
-    const help = spawnSync(program, args, {
+    const help = spawnSyncCaptured(program, args, {
       windowsHide: true,
-      encoding: "utf8",
       timeout: 10000,
     });
     if (

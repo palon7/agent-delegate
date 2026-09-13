@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { sandboxFor } from "./config.mjs";
 import { adapterFor } from "./adapters/index.mjs";
@@ -8,6 +8,7 @@ import { repositoryPaths, srtPaths, existingCodexHome, codexRuntimeWrites, openc
 import { executableCommand, resolveExecutable } from "./executable.mjs";
 import { checkSrtVersion, checkSrtExecution, validateProfile } from "./srt.mjs";
 import { gitText, isInside } from "./snapshot.mjs";
+import { spawnSyncCaptured } from "./spawn.mjs";
 const INHERITED_ENV = ["PATH", "USER", "LOGNAME", "LANG", "LC_ALL"];
 const WORKER_ENTRY = fileURLToPath(new URL("./worker_entry.mjs", import.meta.url));
 export function isMode(value) {
@@ -246,9 +247,8 @@ function parseThreadId(value) {
 }
 function assertQueueAvailable(codex) {
     const [program, args] = executableCommand(codex, ["queue", "--help"]);
-    const check = spawnSync(program, args, {
+    const check = spawnSyncCaptured(program, args, {
         windowsHide: true,
-        stdio: ["ignore", "ignore", "pipe"],
         timeout: 10000,
         killSignal: "SIGKILL",
     });
