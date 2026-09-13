@@ -20,5 +20,3 @@ Use the `skill-creator` and `plugin-creator` skills when relevant to skill or pl
 - Keep documentation concise, accurate, and consistent with the implemented behavior.
 - Keep the README focused on information useful to users and developers: purpose, requirements, installation, usage, configuration, and essential development commands.
 - Do not turn the README into an inventory of internal files, functions, or implementation details. Include architectural details only when they help readers use, maintain, or extend the plugin.
-
-Keep shared metadata in `plugin.json` and `.codex-plugin/plugin.json` in sync.
