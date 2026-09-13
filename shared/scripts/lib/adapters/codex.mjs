@@ -3,7 +3,26 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseObject } from "./types.mjs";
 function codexHome(job) {
-    return path.join(job.state_dir, "codex");
+    if (!job.codex_home)
+        throw new Error("Missing saved Codex home; prepare a new job");
+    return job.codex_home;
+}
+function handlerPluginOverrides(home) {
+    const marketplaces = new Set(["better-agent-handler"]);
+    const cache = path.join(home, "plugins", "cache");
+    if (fs.existsSync(cache)) {
+        for (const entry of fs.readdirSync(cache, { withFileTypes: true })) {
+            if (entry.isDirectory() &&
+                fs.existsSync(path.join(cache, entry.name, "better-agent-handler")))
+                marketplaces.add(entry.name);
+        }
+    }
+    return [...marketplaces].map((marketplace) => {
+        if (!/^[A-Za-z0-9_-]+$/.test(marketplace))
+            throw new Error(`Cannot disable Better Agent Handler for unsupported marketplace name: ${marketplace}`);
+        // Codex -c splits keys on dots; it does not unquote TOML key segments.
+        return `plugins.better-agent-handler@${marketplace}.enabled=false`;
+    });
 }
 export const codex = {
     skill: "codex-delegate",
@@ -17,25 +36,9 @@ export const codex = {
             help.status !== 0 ||
             !help.stdout.includes("--approve-for-me"))
             throw new Error("Codex CLI with automatic approval review (--approve-for-me) is required");
-        const features = spawnSync(executable, ["features", "list"], {
-            encoding: "utf8",
-            timeout: 10000,
-        });
-        if (features.error ||
-            features.status !== 0 ||
-            !features.stdout.includes("skip_host_skill_discovery"))
-            throw new Error("Codex CLI with skip_host_skill_discovery is required for isolated delegation");
     },
     prepare(stateDir) {
-        for (const name of [
-            "codex",
-            "home",
-            "tmp",
-            "config",
-            "data",
-            "cache",
-            "state",
-        ])
+        for (const name of ["logs", "sqlite", "tmp"])
             fs.mkdirSync(path.join(stateDir, name), {
                 recursive: true,
                 mode: 0o700,
@@ -45,26 +48,22 @@ export const codex = {
         // Config overrides work for both exec and exec resume. --approve-for-me
         // itself would force workspace-write even for a read-only review.
         const overrides = [
+            `sqlite_home=${JSON.stringify(path.join(job.state_dir, "sqlite"))}`,
+            `log_dir=${JSON.stringify(path.join(job.state_dir, "logs"))}`,
             'approval_policy="on-request"',
             'approvals_reviewer="auto_review"',
             `sandbox_mode="${job.mode === "review" ? "read-only" : "workspace-write"}"`,
             "sandbox_workspace_write.writable_roots=[]",
-            "sandbox_workspace_write.network_access=false",
             "sandbox_workspace_write.exclude_slash_tmp=true",
             "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-            "features.plugins=false",
-            "features.remote_plugin=false",
+            ...handlerPluginOverrides(codexHome(job)),
             "features.multi_agent=false",
             "features.multi_agent_v2=false",
-            "features.skip_host_skill_discovery=true",
             "features.guardian_approval=true",
-            "features.apps=false",
-            "features.hooks=false",
-            'shell_environment_policy.inherit="all"',
-            'auto_review.policy="This is a delegated task. Deny further delegation and changes to handler configuration. For review tasks, deny writes to the repository and Git metadata. For implementation, restrict writes to the selected repository and private state, and deny Git metadata changes unless explicitly requested."',
         ];
         return [
             job.executable,
+            ...(job.codex_profile ? ["--profile", job.codex_profile] : []),
             "exec",
             ...(job.session ? ["resume", job.session] : []),
             "--json",
@@ -82,15 +81,14 @@ export const codex = {
         result.answer = fs.existsSync(final) ? fs.readFileSync(final, "utf8") : "";
     },
     environment(job) {
-        return {
-            HOME: path.join(job.state_dir, "home"),
+        const env = {
+            ...process.env,
             CODEX_HOME: codexHome(job),
-            XDG_CONFIG_HOME: path.join(job.state_dir, "config"),
-            XDG_DATA_HOME: path.join(job.state_dir, "data"),
-            XDG_CACHE_HOME: path.join(job.state_dir, "cache"),
-            XDG_STATE_HOME: path.join(job.state_dir, "state"),
             TMPDIR: path.join(job.state_dir, "tmp"),
         };
+        delete env.CODEX_THREAD_ID;
+        delete env.CODEX_SESSION_ID;
+        return env;
     },
     async consumeOutput(lines, job, session) {
         const errors = [];

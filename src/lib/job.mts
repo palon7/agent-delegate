@@ -4,7 +4,12 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { type AgentName, type Sandbox, sandboxFor } from "./config.mjs";
 import { adapterFor } from "./adapters/index.mjs";
-import { repositoryPaths, srtPaths } from "./paths.mjs";
+import {
+  repositoryPaths,
+  srtPaths,
+  existingCodexHome,
+  codexRuntimeWrites,
+} from "./paths.mjs";
 import { checkSrtVersion, checkSrtExecution, validateProfile } from "./srt.mjs";
 import { gitText, isInside } from "./snapshot.mjs";
 
@@ -34,6 +39,8 @@ export interface Job {
   mode: Mode;
   pass_env: string[];
   codex: string;
+  codex_home?: string;
+  codex_profile?: string;
   srt?: string;
   executable: string;
 }
@@ -52,6 +59,7 @@ export interface State {
 }
 
 export interface StartArgs {
+  codexProfile?: string;
   agent: AgentName;
   delegationDepth?: number;
   jobDir: string;
@@ -110,7 +118,9 @@ export function jobEnvironment(passEnv: string[]): NodeJS.ProcessEnv {
 
   const reserved = new Set([
     "CODEX_THREAD_ID",
+    "CODEX_SESSION_ID",
     "CODEX_HOME",
+    "CODEX_SQLITE_HOME",
     "BETTER_AGENT_HANDLER_DEPTH",
     "HOME",
     "XDG_CONFIG_HOME",
@@ -135,6 +145,8 @@ export function jobEnvironment(passEnv: string[]): NodeJS.ProcessEnv {
 
 export async function start(args: StartArgs) {
   assertNotDelegated(args.delegationDepth);
+  if (args.codexProfile && args.agent !== "codex")
+    throw new Error("--codex-profile requires --agent codex");
   if (process.platform === "win32")
     throw new Error("Native Windows job execution is not supported. Use WSL2.");
 
@@ -145,7 +157,17 @@ export async function start(args: StartArgs) {
   const stateDir = fs.realpathSync(args.stateDir ?? defaults.state_dir);
   const cwd = fs.realpathSync(args.cwd);
   validateDirectories(directory, stateDir, cwd);
-  const thread = canonicalThreadId(args.thread);
+  const thread = parseThreadId(args.thread);
+  if (!thread) throw new Error("--thread or CODEX_THREAD_ID must be a UUID");
+
+  if (
+    args.agent === "codex" &&
+    args.session &&
+    parseThreadId(args.session) === thread
+  )
+    throw new Error(
+      "Cannot resume the parent Codex task as a delegated session",
+    );
 
   const codex = resolveExecutable(args.codex);
   const executable = resolveExecutable(args.executable ?? args.agent);
@@ -188,6 +210,8 @@ export async function start(args: StartArgs) {
     mode: args.mode,
     pass_env: args.passEnv,
     codex,
+    codex_home: args.agent === "codex" ? existingCodexHome() : undefined,
+    codex_profile: args.codexProfile,
     srt,
     executable,
   };
@@ -207,7 +231,14 @@ export async function start(args: StartArgs) {
   try {
     adapter.prepare(stateDir);
     if (profile) {
-      executionProfile(profile, cwd, stateDir, directory, args.mode);
+      executionProfile(
+        profile,
+        cwd,
+        stateDir,
+        directory,
+        args.mode,
+        job.codex_home ? codexRuntimeWrites(job.codex_home) : [],
+      );
       checkSrtExecution(srt!, job.srt_settings!, stateDir, {
         ...jobEnvironment(job.pass_env),
         ...adapter.environment(job),
@@ -236,10 +267,42 @@ export function executionProfile(
   stateDir: string,
   directory: string,
   mode: Mode,
+  runtimeWrites: string[] = [],
 ): string {
   const settings = JSON.parse(fs.readFileSync(profile, "utf8"));
   const filesystem = (settings.filesystem ??= {});
+
+  // Shared Codex auth/session writes require explicit approval in the source
+  // profile. Never grant the entire parent home merely to reuse authentication.
+  for (const required of runtimeWrites) {
+    if (
+      !(filesystem.allowWrite ?? []).some(
+        (allowed: string) =>
+          path.isAbsolute(allowed) && isInside(required, allowed),
+      )
+    )
+      throw new Error(
+        `SRT profile must approve Codex runtime write access: ${required}`,
+      );
+  }
+
   filesystem.allowWrite = mode === "implement" ? [stateDir, cwd] : [stateDir];
+  filesystem.allowWrite.push(...runtimeWrites);
+
+  // A broad read-only bind can cover SRT's narrower writable binds on Linux.
+  // Require separate read entries instead of silently expanding write access.
+  for (const required of runtimeWrites) {
+    const reads: string[] = filesystem.allowRead ?? [];
+    if (
+      !reads.includes(required) ||
+      reads.some(
+        (allowed) => allowed !== required && isInside(required, allowed),
+      )
+    )
+      throw new Error(
+        `SRT profile needs a separate allowRead entry for ${required}, without an enclosing read-only directory`,
+      );
+  }
 
   const gitDirectories = ["--git-dir", "--git-common-dir"].map((flag) =>
     gitText(cwd, ["rev-parse", "--path-format=absolute", flag]),
@@ -280,13 +343,12 @@ function validateDirectories(
 }
 
 /** Accept common UUID spellings and return the lowercase hyphenated form. */
-function canonicalThreadId(value: string): string {
+function parseThreadId(value: string): string | undefined {
   const hex = value
     .replace(/^urn:uuid:/i, "")
     .replace(/[{}-]/g, "")
     .toLowerCase();
-  if (!/^[a-f\d]{32}$/.test(hex))
-    throw new Error("--thread or CODEX_THREAD_ID must be a UUID");
+  if (!/^[a-f\d]{32}$/.test(hex)) return undefined;
   return hex.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
 }
 

@@ -57,7 +57,7 @@ The following configuration matches the defaults used when no file exists. Set a
 }
 ```
 
-When SRT is enabled, Codex asks permission to install any missing dependencies and configure access to files and network destinations. Runs without SRT need no SRT setup. Codex also asks before copying credentials needed by the delegated agent.
+When SRT is enabled, Codex asks permission to install any missing dependencies and configure access to files and network destinations. Runs without SRT need no SRT setup. Codex delegation uses your existing login and settings. OpenCode may need credentials copied with your permission.
 
 ## Development
 

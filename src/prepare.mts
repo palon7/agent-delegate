@@ -3,7 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { isAgent, sandboxFor } from "./lib/config.mjs";
-import { repositoryPaths, srtPaths, SRT_VERSION } from "./lib/paths.mjs";
+import {
+  repositoryPaths,
+  srtPaths,
+  SRT_VERSION,
+  codexRuntimeWrites,
+} from "./lib/paths.mjs";
 import { assertNotDelegated } from "./lib/job.mjs";
 import { adapterFor } from "./lib/adapters/index.mjs";
 import { checkSrtVersion } from "./lib/srt.mjs";
@@ -38,6 +43,7 @@ try {
       sandbox,
       ...paths,
       auth_file_present: fs.existsSync(paths.auth_file),
+      ...(values.agent === "codex" ? { authentication: "inherited" } : {}),
     };
 
     // SRT-disabled jobs must not even inspect an SRT installation.
@@ -55,6 +61,9 @@ try {
         ...srt,
         error,
         profile_present: fs.existsSync(paths.profile),
+        ...("codex_home" in paths
+          ? { runtime_write_paths: codexRuntimeWrites(paths.codex_home) }
+          : {}),
         ...(error
           ? {
               install_argv: [

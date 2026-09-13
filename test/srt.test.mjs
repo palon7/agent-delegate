@@ -33,6 +33,10 @@ test(
       assert.equal(git.status, 0);
 
       const profile = path.join(state, "srt-profile.json");
+      const authHome = path.join(root, "existing-codex");
+      fs.mkdirSync(authHome);
+      const auth = path.join(authHome, "auth.json");
+      fs.writeFileSync(auth, "initial");
       const original = JSON.stringify({
         network: { allowedDomains: [], deniedDomains: [] },
         filesystem: {
@@ -40,9 +44,10 @@ test(
           allowRead: [
             repo,
             state,
+            auth,
             path.resolve(process.env.SRT_TEST_CLI, "../.."),
           ],
-          allowWrite: [],
+          allowWrite: [auth],
           denyWrite: [],
         },
       });
@@ -59,7 +64,14 @@ test(
           pass_env: [],
           delegation_depth: 0,
           srt: process.env.SRT_TEST_CLI,
-          srt_settings: executionProfile(profile, repo, state, directory, mode),
+          srt_settings: executionProfile(
+            profile,
+            repo,
+            state,
+            directory,
+            mode,
+            [auth],
+          ),
           executable: process.execPath,
         };
         const env = environment(job);
@@ -78,6 +90,7 @@ test(
         fs.writeFileSync(replacement, 'changed');
         blocked(() => fs.renameSync(replacement, ${JSON.stringify(profile)}));
         fs.writeFileSync(${JSON.stringify(path.join(state, "allowed"))}, 'yes');
+        fs.writeFileSync(${JSON.stringify(auth)}, 'refreshed');
         ${mode === "review" ? "blocked(() => " : ""}fs.writeFileSync(${JSON.stringify(source)}, 'yes')${mode === "review" ? ")" : ""};
         process.stdout.write(process.env.TMPDIR);
       `;
@@ -101,6 +114,7 @@ test(
         assert.equal(result.status, 0, result.stderr);
         assert.equal(result.stdout, path.join(state, "tmp"));
         assert.equal(fs.readFileSync(profile, "utf8"), original);
+        assert.equal(fs.readFileSync(auth, "utf8"), "refreshed");
         assert.equal(fs.existsSync(source), mode === "implement");
       }
     } finally {

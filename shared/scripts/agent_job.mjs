@@ -2,7 +2,7 @@
 import { parseArgs } from "node:util";
 import { isAgent } from "./lib/config.mjs";
 import { isMode, start } from "./lib/job.mjs";
-const USAGE = "agent_job.mjs --agent opencode|codex --job-dir PATH [--state-dir PATH] --cwd PATH [--profile PATH] --mode implement|review --thread UUID [--session ID] [--model MODEL] [--pass-env NAME] [--srt PATH] [--executable PATH] [--codex PATH]";
+const USAGE = "agent_job.mjs --agent opencode|codex --job-dir PATH [--state-dir PATH] --cwd PATH [--profile PATH] --mode implement|review --thread UUID [--session ID] [--model MODEL] [--codex-profile NAME] [--pass-env NAME] [--srt PATH] [--executable PATH] [--codex PATH]";
 async function main() {
     const { values } = parseArgs({
         options: {
@@ -15,6 +15,7 @@ async function main() {
             thread: { type: "string", default: process.env.CODEX_THREAD_ID },
             session: { type: "string" },
             model: { type: "string" },
+            "codex-profile": { type: "string" },
             mode: { type: "string" },
             srt: { type: "string" },
             executable: { type: "string" },
@@ -41,6 +42,7 @@ async function main() {
         mode,
         session: values.session,
         model: values.model,
+        codexProfile: values["codex-profile"],
         passEnv: values["pass-env"],
         codex: values.codex,
         srt: values.srt,

@@ -439,6 +439,17 @@ test("recursion and reserved parent variables are rejected before launch", async
 test("Codex command preserves explicit model/session, native review policy and child isolation", (t) => {
   const { job } = jobFixture(t);
   Object.assign(job, { agent: "codex", sandbox: "none", mode: "review" });
+  job.codex_home = path.join(job.state_dir, "existing-codex-home");
+  fs.mkdirSync(
+    path.join(
+      job.codex_home,
+      "plugins",
+      "cache",
+      "custom-market",
+      "better-agent-handler",
+    ),
+    { recursive: true },
+  );
   const initial = command(job);
   assert.equal(initial[0], job.executable);
   assert.deepEqual(initial.slice(1, 2), ["exec"]);
@@ -448,9 +459,30 @@ test("Codex command preserves explicit model/session, native review policy and c
   assert.ok(!initial.includes("--approve-for-me"));
   assert.ok(!initial.includes("--dangerously-bypass-approvals-and-sandbox"));
   mockEnv(t, "CODEX_THREAD_ID", job.thread);
+  mockEnv(t, "CODEX_SESSION_ID", "parent-session");
+  mockEnv(t, "XDG_CONFIG_HOME", "/existing-tool-config");
+  mockEnv(t, "CODEX_API_KEY", "fake-inherited-key");
   const env = environment(job);
   assert.equal(env.CODEX_THREAD_ID, undefined);
-  assert.equal(env.CODEX_HOME, path.join(job.state_dir, "codex"));
+  assert.equal(env.CODEX_HOME, job.codex_home);
+  assert.equal(env.CODEX_SESSION_ID, undefined);
+  assert.equal(env.XDG_CONFIG_HOME, "/existing-tool-config");
+  assert.equal(env.CODEX_API_KEY, "fake-inherited-key");
+  assert.ok(!initial.includes("--ignore-user-config"));
+  assert.ok(!initial.includes("--ignore-rules"));
+  assert.ok(
+    initial.includes(
+      "plugins.better-agent-handler@custom-market.enabled=false",
+    ),
+  );
+  for (const removed of [
+    "features.plugins=false",
+    "features.apps=false",
+    "features.hooks=false",
+    'cli_auth_credentials_store="auto"',
+    'shell_environment_policy.inherit="all"',
+  ])
+    assert.ok(!initial.includes(removed));
   assert.equal(env.BETTER_AGENT_HANDLER_DEPTH, "1");
   Object.assign(job, {
     session: "child-session",
@@ -462,6 +494,14 @@ test("Codex command preserves explicit model/session, native review policy and c
   assert.equal(resume[resume.indexOf("--model") + 1], "chosen-model");
   assert.ok(resume.includes('sandbox_mode="workspace-write"'));
   assert.ok(!resume.includes("--color"));
+  job.codex_profile = "work";
+  assert.deepEqual(command(job).slice(1, 6), [
+    "--profile",
+    "work",
+    "exec",
+    "resume",
+    "child-session",
+  ]);
   job.sandbox = "srt";
   assert.deepEqual(command(job).slice(0, 4), [
     job.srt,
@@ -469,6 +509,21 @@ test("Codex command preserves explicit model/session, native review policy and c
     job.srt_settings,
     "--",
   ]);
+
+  fs.mkdirSync(
+    path.join(
+      job.codex_home,
+      "plugins",
+      "cache",
+      "invalid.market",
+      "better-agent-handler",
+    ),
+    { recursive: true },
+  );
+  assert.throws(
+    () => command(job),
+    /unsupported marketplace name: invalid.market/,
+  );
 });
 
 async function codexJob(
@@ -486,6 +541,7 @@ async function codexJob(
     { type: "turn.completed" },
   ];
   f.job.agent = "codex";
+  f.job.codex_home = path.join(f.root, "existing-codex-home");
   f.job.sandbox = "none";
   f.job.mode = "review";
   f.job.session = session;
@@ -597,17 +653,64 @@ test("Codex preflight rejects older CLIs without invoking inference", (t) => {
   assert.throws(() => adapterFor("codex").preflight(old), /automatic approval/);
 });
 
+test("Codex cannot resume its parent and SRT requires approved shared runtime writes", async (t) => {
+  const { root, directory, job, profile } = jobFixture(t);
+  mockEnv(t, "XDG_CONFIG_HOME", path.join(root, "handler-config"));
+
+  await assert.rejects(
+    start({
+      agent: "codex",
+      jobDir: directory,
+      stateDir: job.state_dir,
+      cwd: job.cwd,
+      mode: "review",
+      thread: job.thread,
+      session: job.thread,
+      codex: job.codex,
+      passEnv: [],
+    }),
+    /Cannot resume the parent/,
+  );
+  assert.equal(fs.existsSync(path.join(directory, "job.json")), false);
+
+  assert.throws(
+    () =>
+      executionProfile(profile, job.cwd, job.state_dir, directory, "review", [
+        path.join(root, "auth.json"),
+      ]),
+    /must approve Codex runtime write access/,
+  );
+});
+
 test("Codex detached launcher needs neither SRT nor profile and snapshots the saved preference", async (t) => {
   const { root, directory, job } = jobFixture(t);
   mockEnv(t, "XDG_CONFIG_HOME", path.join(root, "handler-config"));
+  const parentHome = path.join(root, "parent-codex");
+  fs.mkdirSync(parentHome);
+  fs.writeFileSync(
+    path.join(parentHome, "auth.json"),
+    '{"test_token":"initial"}',
+  );
+  fs.writeFileSync(
+    path.join(parentHome, "config.toml"),
+    'model = "user-default"\n',
+  );
+  mockEnv(t, "CODEX_HOME", parentHome);
   const agent = executable(
     root,
     "codex-exec",
     `
     const fs = require("fs");
     const args = process.argv.slice(2);
-    if (args.includes("--help")) { console.log("--approve-for-me"); process.exit(0); }
+    if (args.includes("--help")) { console.log("--approve-for-me --ignore-user-config --ignore-rules"); process.exit(0); }
     if (args[0] === "features") { console.log("skip_host_skill_discovery"); process.exit(0); }
+    const assert = require("node:assert/strict");
+    assert.equal(process.env.CODEX_HOME, ${JSON.stringify(parentHome)});
+    assert.equal(JSON.parse(fs.readFileSync(process.env.CODEX_HOME + '/auth.json')).test_token, 'initial');
+    assert.ok(!args.includes('--ignore-user-config'));
+    assert.ok(!args.includes('--ignore-rules'));
+    assert.equal(args[args.indexOf('resume') + 1], 'named-child-session');
+    fs.writeFileSync(process.env.CODEX_HOME + '/auth.json', '{"test_token":"refreshed"}');
     process.stdin.resume();
     process.stdin.on("end", () => {
       fs.writeFileSync(args[args.indexOf("--output-last-message") + 1], "detached final");
@@ -640,6 +743,7 @@ test("Codex detached launcher needs neither SRT nor profile and snapshots the sa
     thread: job.thread,
     codex: job.codex,
     executable: agent,
+    session: "named-child-session",
     srt: "/does-not-exist",
     passEnv: [],
   });
@@ -650,6 +754,19 @@ test("Codex detached launcher needs neither SRT nor profile and snapshots the sa
   assert.equal(saved.agent, "codex");
   assert.equal(saved.sandbox, "none");
   assert.equal(saved.srt, undefined);
+  assert.equal(saved.codex_home, parentHome);
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(parentHome, "auth.json"))).test_token,
+    "refreshed",
+  );
+  assert.equal(
+    fs.readFileSync(path.join(parentHome, "config.toml"), "utf8"),
+    'model = "user-default"\n',
+  );
+  assert.equal(
+    fs.existsSync(path.join(job.state_dir, "codex", "auth.json")),
+    false,
+  );
   assert.equal(fs.existsSync(path.join(directory, "srt.json")), false);
   assert.equal(fs.existsSync(path.join(root, "handler-config")), false);
 });

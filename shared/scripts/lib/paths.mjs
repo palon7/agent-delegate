@@ -3,6 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 export const SRT_VERSION = "0.0.76";
+export function existingCodexHome() {
+    return path.resolve(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
+}
+export function codexRuntimeWrites(home) {
+    return ["auth.json", "sessions", "tmp"].map((name) => path.join(home, name));
+}
 export function dataRoot(platform = process.platform, env = process.env, home = os.homedir()) {
     const p = path.posix;
     let base;
@@ -22,12 +28,15 @@ export function repositoryPaths(cwd, agent) {
         repository,
         state_dir: state,
         profile: path.join(state, "srt-profile.json"),
-        auth_file: agent === "codex"
-            ? path.join(state, "codex", "auth.json")
-            : path.join(state, "data", "opencode", "auth.json"),
-        agent_config: agent === "codex"
-            ? path.join(state, "codex", "config.toml")
-            : path.join(state, "config", "opencode", "opencode.json"),
+        ...(agent === "codex"
+            ? {
+                codex_home: existingCodexHome(),
+                auth_file: path.join(existingCodexHome(), "auth.json"),
+            }
+            : {
+                auth_file: path.join(state, "data", "opencode", "auth.json"),
+                agent_config: path.join(state, "config", "opencode", "opencode.json"),
+            }),
     };
 }
 export function srtPaths() {

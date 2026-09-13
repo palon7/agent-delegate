@@ -13,6 +13,8 @@ Use only when `prepare.mjs` reports `sandbox: "srt"`, a start attempt reports an
 
    Do not install globally or substitute an unpinned release. The runner defaults to the returned `srt.cli` Node entry point; pass that path with `--srt` if specifying it explicitly. It checks package metadata because this release's CLI version banner is unreliable.
 3. Prepare the concrete profile below at the returned `profile` path and request approval for its filesystem and network access. Include any credential copy needed for the private state. These requests may be combined with installation approval. Reuse an approved profile on later runs; explain additional access before changing it.
+   For Codex, include `srt.runtime_write_paths` from preparation in the approved read/write scope. These cover shared authentication, sessions, and runtime files. The launcher requires these grants and does not automatically make the entire Codex home writable.
+   Use those exact read entries, with separate entries for configuration, skills, and plugin directories as needed. Do not add the enclosing Codex home to `allowRead`: SRT's Linux read-only mount can cover the narrower writable paths. The launcher rejects this overlap.
 4. Install and write only what was approved, validate without model inference, then continue the authorized task. Report a declined setup request as a blocker.
 
 SRT 0.0.76 supports native Windows as an alpha feature, using an elevated `windows-install` step and a dedicated sandbox account. This runner still relies on POSIX permissions and process handling. Use WSL2 and the Linux setup; do not install native SRT for a handler job. Native Windows support needs separate runner work and testing.
@@ -50,7 +52,7 @@ Tool read access must cover resolved Node/agent/SRT installations and SRT's runt
 
 For SRT, allow only its `tools/srt/<version>` installation, not the whole handler data directory, which also contains other repositories' credentials.
 
-The launcher derives a per-job profile with the same read/network scope and narrower write boundaries: state plus repository for implementation, state only for review, and Git metadata and the approved source profile always protected. Review additionally denies writing the repository even if an ancestor was previously writable.
+The launcher derives a per-job profile with the same read/network scope and narrower write boundaries: handler state plus repository for implementation, handler state only for review, and explicitly approved shared Codex runtime paths when applicable. Git metadata and the approved source profile stay protected. Review additionally denies writing the repository even if an ancestor was previously writable.
 
 ## Validation
 
