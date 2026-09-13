@@ -20,7 +20,7 @@ A Codex plugin for delegating work to OpenCode or another Codex session. Codex r
 ## Install
 
 ```bash
-codex plugin marketplace add palon7/better-agent-handler
+codex plugin marketplace add palon7/agent-delegate
 codex plugin add delegate@agent-delegate
 ```
 

@@ -16,6 +16,6 @@
     "capabilities": [],
     "defaultPrompt": "Use $delegate:opencode to review the current changes without editing files."
   },
-  "repository": "https://github.com/palon7/better-agent-handler",
-  "homepage": "https://github.com/palon7/better-agent-handler#readme"
+  "repository": "https://github.com/palon7/agent-delegate",
+  "homepage": "https://github.com/palon7/agent-delegate"
 }
