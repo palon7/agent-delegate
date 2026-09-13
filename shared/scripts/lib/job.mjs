@@ -80,7 +80,7 @@ export async function start(args) {
     const adapter = adapterFor(args.agent);
     const defaults = repositoryPaths(args.cwd, args.agent);
     const directory = fs.realpathSync(args.jobDir);
-    const stateDir = fs.realpathSync(args.stateDir ?? defaults.state_dir);
+    const stateDir = resolveFutureDirectory(args.stateDir ?? defaults.state_dir);
     const cwd = fs.realpathSync(args.cwd);
     validateDirectories(directory, stateDir, cwd);
     const thread = parseThreadId(args.thread);
@@ -139,6 +139,7 @@ export async function start(args) {
     // overwrite the profile of a job that has already started.
     fs.writeFileSync(path.join(directory, "job.json"), JSON.stringify(job, null, 2), { flag: "wx", mode: 0o600 });
     try {
+        fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
         adapter.prepare(stateDir);
         if (profile) {
             const opencode = job.agent === "opencode" ? opencodePaths(cwd) : undefined;
@@ -178,6 +179,8 @@ export function executionProfile(profile, cwd, stateDir, directory, mode, runtim
             throw new Error(`SRT profile must approve agent runtime write access: ${required}`);
     }
     filesystem.allowWrite = mode === "implement" ? [stateDir, cwd] : [stateDir];
+    filesystem.allowWrite.push(directory);
+    (filesystem.allowRead ??= []).push(directory);
     filesystem.allowWrite.push(...runtimeWrites);
     // A broad read-only bind can cover SRT's narrower writable binds on Linux.
     // Require separate read entries instead of silently expanding write access.
@@ -193,11 +196,31 @@ export function executionProfile(profile, cwd, stateDir, directory, mode, runtim
     writeJsonAtomic(target, settings);
     return target;
 }
+// Resolve existing ancestors without creating a missing state directory.
+function resolveFutureDirectory(value) {
+    const absolute = path.resolve(value);
+    try {
+        return fs.realpathSync(absolute);
+    }
+    catch (error) {
+        if (error.code !== "ENOENT")
+            throw error;
+        const parent = path.dirname(absolute);
+        if (parent === absolute)
+            throw error;
+        return path.join(resolveFutureDirectory(parent), path.basename(absolute));
+    }
+}
 function validateDirectories(directory, stateDir, cwd) {
+    if (path.dirname(directory) !== fs.realpathSync("/tmp") ||
+        !/^delegate-job-.+$/.test(path.basename(directory)))
+        throw new Error("job-dir must be a delegate-job-* directory directly inside /tmp");
     if (isInside(stateDir, cwd) || isInside(cwd, stateDir))
         throw new Error("state-dir and repository must be separate, non-nested directories");
-    if (!isInside(directory, stateDir) || directory === stateDir)
-        throw new Error("job-dir must be a fresh directory inside state-dir");
+    if (isInside(directory, cwd) ||
+        isInside(cwd, directory) ||
+        isInside(stateDir, directory))
+        throw new Error("job-dir must be separate from the repository and must not contain state-dir");
     const stat = fs.statSync(directory);
     if (!stat.isDirectory() ||
         stat.uid !== process.getuid?.() ||

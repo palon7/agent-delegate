@@ -12,7 +12,7 @@ Use ordinary sandboxed execution (`sandbox_permissions: "use_default"`) for exec
 node "$plugin_root/shared/scripts/prepare.mjs" --cwd "$repository" --agent opencode --new-job
 ```
 
-Use `--agent codex` for Codex. The command creates private directories and returns `job_dir`, persistent `state_dir`, `auth_file`, the SRT `profile`, and the resolved `sandbox`. It also returns OpenCode's `agent_config` or the existing `codex_home`. Omit `--new-job` to inspect paths without creating directories. Keep the returned paths; do not invent state locations or interpret the configuration yourself.
+Use `--agent codex` for Codex. With `--new-job`, the command creates only a private, unique job directory directly under `/tmp` (mode 0700), independently of `$TMPDIR`. It returns `job_dir`, persistent `state_dir`, `auth_file`, the SRT `profile`, and the resolved `sandbox`. It also returns OpenCode's `agent_config` or the existing `codex_home`. Persistent runtime directories are created at launch. Omit `--new-job` to inspect paths without creating directories. Keep the returned paths; do not invent state locations or interpret the configuration yourself.
 
 `auth_file_present` reports file presence only. When SRT is enabled, `srt` contains its installation paths, `profile_present`, any version error and installation command, and Linux `required_tools`. That list names requirements; it does not check whether they are installed.
 
@@ -22,11 +22,11 @@ Use `--agent codex` for Codex. The command creates private directories and retur
 
 State and profiles are reused for the same repository and agent. Check for an existing writer before another implementation. Do not launch a duplicate to discover an earlier job's outcome.
 
-Write a self-contained `request.md` in `job_dir` with an editing tool. For implementation, save the baseline before launch and include its path in the request. Ask for changes or findings, checks and results, and any blocker in the final response. Intermediate tool output is discarded.
+Write a self-contained `request.md` directly in `job_dir` with an editing tool. Keep requests, baselines, and other job artifacts there; do not stage them in the repository or copy them into persistent storage. For implementation, save the baseline before launch and include its path in the request. Use ordinary sandboxed execution for this preparation. If `/tmp` is blocked, report the actual restriction instead of changing sandbox settings. Ask for changes or findings, checks and results, and any blocker in the final response. Intermediate tool output is discarded.
 
 ## Launch
 
-Run with `exec_command` under the task authorization. Escalate only the operation that requires it: for example, creating private state outside writable roots or launching a worker where the host sandbox prevents SRT initialization or detached execution. Base escalation on an observed restriction or an established host requirement, and state that reason. Keep prerequisite checks out of the escalated command. Do not relaunch a job with an unknown outcome to test whether escalation helps.
+Run with `exec_command` under the task authorization. This launch creates persistent runtime directories, starts the agent (including authentication refresh and session/database writes), and queues the completion notification. When those operations require execution outside the parent sandbox, request escalation for this launch as a whole, based on an observed restriction or an established host requirement. Keep read-only checks and temporary preparation outside the escalated command. Initial installation/profile setup and later configuration changes remain separate approved operations. Do not relaunch a job with an unknown outcome to test whether escalation helps.
 
 ```bash
 node "$plugin_root/shared/scripts/agent_job.mjs" \
@@ -37,7 +37,7 @@ node "$plugin_root/shared/scripts/agent_job.mjs" \
   --thread "$CODEX_THREAD_ID"
 ```
 
-The runner uses the same state, profile, and SRT paths as `prepare.mjs`. For an explicitly approved alternate installation, pass `--srt <absolute-path>`; Node entry points are supported. `--state-dir` and `--profile` accept existing custom paths. `--profile` and `--srt` are ignored when SRT is disabled. Agent executables use PATH or explicit `--executable` and `--codex` paths.
+The runner uses the same state, profile, and SRT paths as `prepare.mjs`. Job directories must resolve to a `delegate-job-*` directory directly under the real `/tmp`, owned by this user with mode 0700. For an explicitly approved alternate installation, pass `--srt <absolute-path>`; Node entry points are supported. `--state-dir` accepts a custom path and is created after preflight checks; `--profile` requires an existing file. Initial SRT setup creates its state directory before writing the profile. `--profile` and `--srt` are ignored when SRT is disabled. Agent executables use PATH or explicit `--executable` and `--codex` paths.
 
 Use `--mode review` for review permissions. For a follow-up, create a new job and pass `--session <saved-session-id>` with the same agent, repository, state directory, and authentication/runtime paths. Never use global `--continue` or `--last`. Pass explicit model choices with `--model` and Codex configuration profiles with `--codex-profile` (distinct from SRT's `--profile`). Task-local selections are not inferred from shared configuration. Both agents inherit environment credentials; values are not saved in job metadata. Parent task IDs are excluded from the child environment.
 
@@ -75,6 +75,6 @@ Assess only `report.md` and the relevant diff. Status metadata (`state.json`, or
 
 If the worker fails, report the status/error and any final response. Do not treat partial work as success or retry an unknown outcome. For an explicitly requested launcher/notification diagnosis, inspect only the necessary local error logs; do not rerun the model. Terminal state is saved before notification; queue acceptance is not proof that the notification was displayed, and uncertain delivery is not retried automatically.
 
-Retain request/report/status and the session ID for follow-ups. Remove a completed job's snapshot after its diff has been reviewed and no further comparison is needed; do not automatically delete agent session state. See [snapshot.md](snapshot.md) for storage limits.
+Keep the temporary job directory until the worker has finished and the parent has reviewed the report and diff. Record the session ID and necessary follow-up context in the parent task before removing that job directory when no further comparison or diagnosis is needed. Never delete it merely because launch returned or the worker exited; do not automatically delete persistent agent session state. Temporary jobs are not guaranteed to survive reboot or system cleanup. See [snapshot.md](snapshot.md) for storage limits.
 
 SRT network isolation can make host databases, browsers, and existing development servers unavailable. Report the specific verification blocker. Never remove isolation or run unsandboxed to work around it.

@@ -155,7 +155,7 @@ export async function start(args: StartArgs) {
   const adapter = adapterFor(args.agent);
   const defaults = repositoryPaths(args.cwd, args.agent);
   const directory = fs.realpathSync(args.jobDir);
-  const stateDir = fs.realpathSync(args.stateDir ?? defaults.state_dir);
+  const stateDir = resolveFutureDirectory(args.stateDir ?? defaults.state_dir);
   const cwd = fs.realpathSync(args.cwd);
   validateDirectories(directory, stateDir, cwd);
   const thread = parseThreadId(args.thread);
@@ -233,6 +233,7 @@ export async function start(args: StartArgs) {
   );
 
   try {
+    fs.mkdirSync(stateDir, { recursive: true, mode: 0o700 });
     adapter.prepare(stateDir);
     if (profile) {
       const opencode =
@@ -312,6 +313,8 @@ export function executionProfile(
   }
 
   filesystem.allowWrite = mode === "implement" ? [stateDir, cwd] : [stateDir];
+  filesystem.allowWrite.push(directory);
+  (filesystem.allowRead ??= []).push(directory);
   filesystem.allowWrite.push(...runtimeWrites);
 
   // A broad read-only bind can cover SRT's narrower writable binds on Linux.
@@ -348,17 +351,43 @@ export function executionProfile(
   return target;
 }
 
+// Resolve existing ancestors without creating a missing state directory.
+function resolveFutureDirectory(value: string): string {
+  const absolute = path.resolve(value);
+  try {
+    return fs.realpathSync(absolute);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const parent = path.dirname(absolute);
+    if (parent === absolute) throw error;
+    return path.join(resolveFutureDirectory(parent), path.basename(absolute));
+  }
+}
+
 function validateDirectories(
   directory: string,
   stateDir: string,
   cwd: string,
 ): void {
+  if (
+    path.dirname(directory) !== fs.realpathSync("/tmp") ||
+    !/^delegate-job-.+$/.test(path.basename(directory))
+  )
+    throw new Error(
+      "job-dir must be a delegate-job-* directory directly inside /tmp",
+    );
   if (isInside(stateDir, cwd) || isInside(cwd, stateDir))
     throw new Error(
       "state-dir and repository must be separate, non-nested directories",
     );
-  if (!isInside(directory, stateDir) || directory === stateDir)
-    throw new Error("job-dir must be a fresh directory inside state-dir");
+  if (
+    isInside(directory, cwd) ||
+    isInside(cwd, directory) ||
+    isInside(stateDir, directory)
+  )
+    throw new Error(
+      "job-dir must be separate from the repository and must not contain state-dir",
+    );
 
   const stat = fs.statSync(directory);
   if (

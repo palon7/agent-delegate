@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import fs from "node:fs";
-import path from "node:path";
 import { parseArgs } from "node:util";
 import { isAgent, sandboxFor } from "./lib/config.mjs";
 import {
@@ -10,7 +9,6 @@ import {
   codexRuntimeWrites,
 } from "./lib/paths.mjs";
 import { assertNotDelegated } from "./lib/job.mjs";
-import { adapterFor } from "./lib/adapters/index.mjs";
 import { checkSrtVersion } from "./lib/srt.mjs";
 
 process.umask(0o077);
@@ -86,9 +84,7 @@ try {
     }
 
     if (values["new-job"]) {
-      fs.mkdirSync(paths.state_dir, { recursive: true, mode: 0o700 });
-      adapterFor(values.agent).prepare(paths.state_dir);
-      result.job_dir = fs.mkdtempSync(path.join(paths.state_dir, "job-"));
+      result.job_dir = fs.realpathSync(fs.mkdtempSync("/tmp/delegate-job-"));
     }
 
     console.log(JSON.stringify(result, null, 2));

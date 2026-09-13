@@ -61,6 +61,8 @@ Both agents use your existing login and settings. OpenCode automatically approve
 
 When SRT is enabled, Codex asks permission to install any missing dependencies and configure access to files and network destinations. Runs without SRT need no SRT setup.
 
+Job requests, baselines, reports, and status live in private directories under `/tmp`, independent of `$TMPDIR`. Keep them until the parent finishes reviewing the result, then remove them. Settings and agent session/runtime state remain persistent. Routine preparation needs only temporary writes; when host permissions require it, the launch command requests approval for agent execution, runtime writes, and completion notification together.
+
 ## Development
 
 Install dependencies with `npm ci`.

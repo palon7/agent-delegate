@@ -12,7 +12,7 @@ Use only when `prepare.mjs` reports `sandbox: "srt"`, a start attempt reports an
    ```
 
    Do not install globally or substitute an unpinned release. The runner defaults to the returned `srt.cli` Node entry point; pass that path with `--srt` if specifying it explicitly. It checks package metadata because this release's CLI version banner is unreliable.
-3. Prepare the concrete profile below at the returned `profile` path and request approval for its filesystem and network access. This request may be combined with installation approval. Reuse an approved profile on later runs; explain additional access before changing it.
+3. During initial setup, create the returned `state_dir` with `mkdir -p -m 700` under setup authorization (escalate this setup operation if it is outside writable roots), then resolve its real path. Routine `prepare --new-job` intentionally does not create it. Prepare the concrete profile below at the returned `profile` path and request approval for its filesystem and network access. This request may be combined with installation approval. Reuse an approved profile on later runs; explain additional access before changing it.
    Include `srt.runtime_write_paths` from preparation in the approved read/write scope. These cover shared authentication, sessions, and runtime files. Use those exact read entries, with separate entries for configuration, skills, and plugin directories as needed. Do not add an enclosing home or XDG directory to `allowRead`: SRT's Linux read-only mount can cover the narrower writable paths. The launcher rejects this overlap.
    For OpenCode, allow reading the existing `srt.config_read_paths`. The runner protects these paths from writes, including in implementation mode. Additional files referenced by configuration or plugins need their own approved access. If plugin dependencies require writing a configuration directory, arrange that setup separately with approval; do not loosen the job profile.
 4. Install and write only what was approved, validate without model inference, then continue the authorized task. Report a declined setup request as a blocker.
@@ -52,7 +52,7 @@ Tool read access must cover resolved Node/agent/SRT installations and SRT's runt
 
 For SRT, allow only its `tools/srt/<version>` installation, not the whole handler data directory, which also contains other repositories' credentials.
 
-The launcher derives a per-job profile with the same read/network scope and narrower write boundaries: handler state plus repository for implementation, handler state only for review, and explicitly approved shared agent runtime paths. Git metadata, OpenCode configuration, and the approved source profile stay protected. Review additionally denies writing the repository even if an ancestor was previously writable.
+The launcher adds read/write access to the private temporary job directory and narrows other writes to handler state plus repository for implementation, handler state only for review, and explicitly approved shared agent runtime paths. Include this temporary job access in initial setup approval; it does not grant access to all of `/tmp`. Network scope is unchanged. Git metadata, OpenCode configuration, and the approved source profile stay protected. Review additionally denies writing the repository even if an ancestor was previously writable.
 
 ## Validation
 

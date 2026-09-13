@@ -88,8 +88,8 @@ function jobFixture(t, payload = events, exit = 0, queueExit = 0) {
     mockEnv(t, key, path.join(root, name));
   const state = path.join(root, "state");
   fs.mkdirSync(state);
-  const directory = path.join(state, "job");
-  fs.mkdirSync(directory, { mode: 0o700 });
+  const directory = fs.realpathSync(fs.mkdtempSync("/tmp/delegate-job-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   fs.writeFileSync(path.join(directory, "request.md"), "task");
 
   const stream =
@@ -242,7 +242,8 @@ test("linked worktrees and read-only profile retain network scope", (t) => {
     fs.readFileSync(executionProfile(profile, linked, state, job, "review")),
   );
   assert.deepEqual(settings.network, network);
-  assert.deepEqual(settings.filesystem.allowWrite, [state]);
+  assert.deepEqual(settings.filesystem.allowWrite, [state, job]);
+  assert.ok(settings.filesystem.allowRead.includes(job));
   assert.ok(settings.filesystem.denyWrite.includes(linked));
   assert.ok(settings.filesystem.denyWrite.includes(fs.realpathSync(profile)));
   assert.ok(settings.filesystem.denyWrite.includes(path.join(repo, ".git")));
@@ -676,8 +677,49 @@ test("Codex cannot resume its parent and SRT requires approved shared runtime wr
   );
 });
 
+test("launch rejects foreign jobs and invalid inputs without creating state", async (t) => {
+  const { root, directory, job } = jobFixture(t);
+  const stateDir = path.join(root, "missing", "state");
+  const args = {
+    agent: "codex",
+    jobDir: directory,
+    stateDir,
+    cwd: job.cwd,
+    mode: "review",
+    thread: job.thread,
+    codex: job.codex,
+    executable: "/missing-agent",
+    passEnv: [],
+  };
+  const foreign = path.join(root, "foreign-state");
+  fs.mkdirSync(foreign, { mode: 0o700 });
+  fs.writeFileSync(path.join(foreign, "request.md"), "task");
+  const alias = directory + "-alias";
+  fs.symlinkSync(foreign, alias);
+  t.after(() => fs.unlinkSync(alias));
+  for (const jobDir of [foreign, alias]) {
+    await assert.rejects(start({ ...args, jobDir }), /directly inside \/tmp/);
+    assert.equal(fs.existsSync(stateDir), false);
+    assert.equal(fs.existsSync(path.join(foreign, "job.json")), false);
+  }
+  const repoAlias = path.join(root, "repo-alias");
+  fs.symlinkSync(job.cwd, repoAlias);
+  for (const state of [
+    path.join(job.cwd, ".state"),
+    path.join(repoAlias, ".state"),
+  ]) {
+    await assert.rejects(start({ ...args, stateDir: state }), /non-nested/);
+    assert.equal(fs.existsSync(state), false);
+  }
+  await assert.rejects(start({ ...args, thread: "invalid" }), /must be a UUID/);
+  assert.equal(fs.existsSync(stateDir), false);
+  await assert.rejects(start(args), /Executable not found/);
+  assert.equal(fs.existsSync(stateDir), false);
+});
+
 test("Codex detached launcher needs neither SRT nor profile and snapshots the saved preference", async (t) => {
   const { root, directory, job } = jobFixture(t);
+  job.state_dir = path.join(root, "new-persistent-state");
   mockEnv(t, "XDG_CONFIG_HOME", path.join(root, "handler-config"));
   const parentHome = path.join(root, "parent-codex");
   fs.mkdirSync(parentHome);
@@ -969,6 +1011,7 @@ test("missing agent executable reports the prerequisite without a setup referenc
 
 test("SRT-enabled launch checks executable availability before the profile", async (t) => {
   const { root, directory, job } = jobFixture(t);
+  job.state_dir = path.join(root, "missing-srt-state");
   mockEnv(t, "XDG_CONFIG_HOME", path.join(root, "handler-config"));
   const args = {
     agent: "opencode",
@@ -989,6 +1032,7 @@ test("SRT-enabled launch checks executable availability before the profile", asy
     );
   }
   await assert.rejects(start(args), /SRT profile is missing/);
+  assert.equal(fs.existsSync(job.state_dir), false);
   assert.equal(fs.existsSync(path.join(directory, "job.json")), false);
 });
 
@@ -1040,11 +1084,18 @@ test("preparation skips SRT for disabled agents and keeps repository paths stabl
     path.join(root, "config", "delegate", "config.json"),
   );
   const prepared = prepare("opencode", "--new-job");
+  t.after(() => fs.rmSync(prepared.job_dir, { recursive: true, force: true }));
+  assert.equal(fs.existsSync(prepared.state_dir), false);
+  assert.equal(path.dirname(prepared.job_dir), fs.realpathSync("/tmp"));
   assert.equal(prepared.srt, undefined);
   assert.equal(fs.existsSync(path.join(prepared.state_dir, "data")), false);
   assert.equal(prepared.state_dir, opencode.state_dir);
   assert.equal(fs.statSync(prepared.job_dir).mode & 0o777, 0o700);
-  assert.notEqual(prepare("opencode", "--new-job").job_dir, prepared.job_dir);
+  mockEnv(t, "TMPDIR", path.join(root, "unusable-tmp"));
+  const second = prepare("opencode", "--new-job");
+  t.after(() => fs.rmSync(second.job_dir, { recursive: true, force: true }));
+  assert.notEqual(second.job_dir, prepared.job_dir);
+  assert.equal(path.dirname(second.job_dir), fs.realpathSync("/tmp"));
   assert.deepEqual(
     fs.readFileSync(path.join(root, "config", "delegate", "config.json")),
     config,

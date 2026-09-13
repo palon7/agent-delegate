@@ -25,10 +25,10 @@ test(
     try {
       const repo = path.join(root, "repo");
       const state = path.join(root, "long-state-" + "x".repeat(120));
-      const directory = path.join(state, "job");
+      const directory = path.join(root, "job");
       fs.mkdirSync(repo);
       fs.mkdirSync(directory, { recursive: true });
-      fs.mkdirSync(path.join(state, "tmp"));
+      fs.mkdirSync(path.join(state, "tmp"), { recursive: true });
       const git = spawnSync("git", ["init", "-q", repo]);
       assert.equal(git.status, 0);
 
