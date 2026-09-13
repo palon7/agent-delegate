@@ -1036,9 +1036,8 @@ test("OpenCode paths use existing XDG locations and require approval for shared 
   mockEnv(t, "OPENCODE_CONFIG", "custom.jsonc");
   mockEnv(t, "OPENCODE_DB", path.join(root, "database", "sessions.db"));
   const paths = opencodePaths(repo);
-  assert.equal(
-    paths.auth_file,
-    path.join(root, "data", "opencode", "auth.json"),
+  assert.ok(
+    paths.runtime_write_paths.includes(path.join(root, "data", "opencode")),
   );
   assert.ok(paths.config_paths.includes(path.join(repo, "custom.jsonc")));
   assert.ok(
@@ -1171,16 +1170,16 @@ test("preparation skips SRT for disabled agents and keeps repository paths stabl
   assert.equal(fs.existsSync(codex.state_dir), false);
 
   const opencode = prepare("opencode");
-  assert.equal(opencode.authentication, "inherited");
-  assert.equal(
-    opencode.auth_file,
-    path.join(root, "data", "opencode", "auth.json"),
-  );
   assert.equal(opencode.agent_config, path.join(root, "config", "opencode"));
   if (windows) {
     assert.equal(opencode.sandbox, "none");
     assert.equal(opencode.srt, undefined);
   } else {
+    assert.ok(
+      opencode.srt.runtime_write_paths.includes(
+        path.join(root, "data", "opencode"),
+      ),
+    );
     assert.ok(opencode.srt.config_read_paths.includes(opencode.agent_config));
     assert.equal(opencode.srt.version, "0.0.76");
     assert.deepEqual(opencode.srt.install_argv, [

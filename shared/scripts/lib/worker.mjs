@@ -105,7 +105,7 @@ async function runAgent(job, directory, state, srtTemp) {
                 });
                 const result = await adapter.consumeOutput(createInterface({
                     input: Readable.from(followOutput(outputFile, () => finished)),
-                }), job, (id) => {
+                }), (id) => {
                     if (state.session_id !== id) {
                         state.session_id = id;
                         saveState(directory, state);

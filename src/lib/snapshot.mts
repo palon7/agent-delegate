@@ -113,7 +113,7 @@ export function initialize(
   capture(snapshot, "before");
 }
 
-export function capture(directory: string, label: string): string {
+function capture(directory: string, label: string): string {
   const snapshot = fs.realpathSync(directory);
   const { cwd, include } = readSnapshotInfo(snapshot);
   const env = snapshotEnvironment(snapshot);

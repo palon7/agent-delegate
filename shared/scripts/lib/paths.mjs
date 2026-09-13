@@ -35,7 +35,6 @@ export function opencodePaths(cwd) {
             writes.push(database, database + "-wal", database + "-shm");
     }
     return {
-        auth_file: path.join(data, "auth.json"),
         agent_config: config,
         config_paths: [...new Set(settings)],
         runtime_write_paths: [...new Set(writes)],
@@ -64,13 +63,6 @@ export function repositoryPaths(cwd, agent) {
     return {
         repository,
         state_dir: state,
-        profile: path.join(state, "srt-profile.json"),
-        ...(agent === "codex"
-            ? {
-                codex_home: existingCodexHome(),
-                auth_file: path.join(existingCodexHome(), "auth.json"),
-            }
-            : opencodePaths(repository)),
     };
 }
 export function srtPaths() {

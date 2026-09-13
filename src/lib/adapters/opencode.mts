@@ -78,7 +78,6 @@ function environment(job: Job): NodeJS.ProcessEnv {
 
 async function recordEvents(
   lines: AsyncIterable<string>,
-  _job: Job,
   session: (id: string) => void,
 ) {
   let parts: string[] = [];

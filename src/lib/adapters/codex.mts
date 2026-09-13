@@ -115,7 +115,7 @@ export const codex: AgentAdapter = {
     delete env.CODEX_SESSION_ID;
     return env;
   },
-  async consumeOutput(lines, job, session) {
+  async consumeOutput(lines, session) {
     const errors: unknown[] = [];
     let finishReason: string | undefined;
     for await (const line of lines) {

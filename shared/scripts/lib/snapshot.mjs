@@ -70,7 +70,7 @@ export function initialize(cwd, directory, include = []) {
     });
     capture(snapshot, "before");
 }
-export function capture(directory, label) {
+function capture(directory, label) {
     const snapshot = fs.realpathSync(directory);
     const { cwd, include } = readSnapshotInfo(snapshot);
     const env = snapshotEnvironment(snapshot);

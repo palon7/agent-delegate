@@ -18,7 +18,6 @@ export interface AgentAdapter {
   environment(job: Job): NodeJS.ProcessEnv;
   consumeOutput(
     lines: AsyncIterable<string>,
-    job: Job,
     session: (id: string) => void,
   ): Promise<AgentResult>;
   validateCompletion(code: number | null, result: AgentResult): boolean;

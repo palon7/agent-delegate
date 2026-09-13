@@ -60,7 +60,7 @@ function environment(job) {
     delete env.CODEX_SESSION_ID;
     return env;
 }
-async function recordEvents(lines, _job, session) {
+async function recordEvents(lines, session) {
     let parts = [];
     let messageID;
     let finishReason;

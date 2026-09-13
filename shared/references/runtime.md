@@ -12,13 +12,13 @@ Use ordinary sandboxed execution (`sandbox_permissions: "use_default"`) for exec
 node "$plugin_root/shared/scripts/prepare.mjs" --cwd "$repository" --agent opencode --new-job
 ```
 
-Use `--agent codex` for Codex. With `--new-job`, the command creates only a unique job directory: directly under `/tmp` (mode 0700), independently of `$TMPDIR`, on Linux/macOS/WSL2; under the user's temporary directory with inherited permissions on Windows. No Windows ACL setup or elevation is needed for ordinary temporary preparation. It returns `job_dir`, persistent `state_dir`, `auth_file`, the SRT `profile`, and the resolved `sandbox`. It also returns OpenCode's `agent_config` or the existing `codex_home`. Persistent runtime directories are created at launch. Omit `--new-job` to inspect paths without creating directories. Keep the returned paths; do not invent state locations or interpret the configuration yourself.
+Use `--agent codex` for Codex. With `--new-job`, the command creates only a unique job directory: directly under `/tmp` (mode 0700), independently of `$TMPDIR`, on Linux/macOS/WSL2; under the user's temporary directory with inherited permissions on Windows. No Windows ACL setup or elevation is needed for ordinary temporary preparation. It returns `job_dir`, persistent `state_dir`, the SRT `profile`, and the resolved `sandbox`. It also returns OpenCode's `agent_config` or the existing `codex_home`. Persistent runtime directories are created at launch. Omit `--new-job` to inspect paths without creating directories. Keep the returned paths; do not invent state locations or interpret the configuration yourself.
 
-`auth_file_present` reports file presence only. When SRT is enabled, `srt` contains its installation paths, `profile_present`, any version error and installation command, and Linux `required_tools`. That list names requirements; it does not check whether they are installed.
+When SRT is enabled, `srt` contains its installation paths, any version error and installation command, runtime write paths, OpenCode configuration read paths, and Linux `required_tools`. That list names requirements; it does not check whether they are installed.
 
 - If `sandbox` is `none`, skip all SRT detection, installation, dependencies, and profile setup. Codex still uses its native sandbox and automatic approval reviewer.
 - If `sandbox` is `srt`, follow [SRT setup](srt-profile.md). The `srt` object gives the pinned installation path and any installation command. Obtain approval for missing dependencies and the repository profile before launch. Never disable SRT to work around a failure.
-- Both agents inherit existing authentication and configuration; follow [Codex runtime](codex.md) or [OpenCode runtime](opencode.md). Do not request another login or scan for API keys just because `auth_file_present` is false.
+- Both agents inherit existing authentication and configuration; follow [Codex runtime](codex.md) or [OpenCode runtime](opencode.md). Do not request another login or scan for API keys merely because an authentication file is missing.
 
 State and profiles are reused for the same repository and agent. Check for an existing writer before another implementation. Do not launch a duplicate to discover an earlier job's outcome.
 

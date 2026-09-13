@@ -138,7 +138,6 @@ async function runAgent(
           createInterface({
             input: Readable.from(followOutput(outputFile, () => finished)),
           }),
-          job,
           (id) => {
             if (state.session_id !== id) {
               state.session_id = id;

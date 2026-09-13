@@ -85,7 +85,7 @@ export async function start(args) {
     const defaults = repositoryPaths(args.cwd, args.agent);
     const directory = fs.realpathSync(args.jobDir);
     const stateDir = resolveFutureDirectory(args.stateDir ?? defaults.state_dir);
-    const cwd = fs.realpathSync(args.cwd);
+    const cwd = defaults.repository;
     validateDirectories(directory, stateDir, cwd);
     const thread = parseThreadId(args.thread);
     if (!thread)

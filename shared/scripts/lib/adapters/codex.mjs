@@ -99,7 +99,7 @@ export const codex = {
         delete env.CODEX_SESSION_ID;
         return env;
     },
-    async consumeOutput(lines, job, session) {
+    async consumeOutput(lines, session) {
         const errors = [];
         let finishReason;
         for await (const line of lines) {
