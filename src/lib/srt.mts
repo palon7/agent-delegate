@@ -80,7 +80,7 @@ export function checkSrtExecution(
   cwd: string,
   env: NodeJS.ProcessEnv,
 ): void {
-  const marker = "better-agent-handler-srt-ready";
+  const marker = "delegate-srt-ready";
   const [program, ...args] = sandboxCommand(cli, settings, env.TMPDIR!, [
     process.execPath,
     "-e",

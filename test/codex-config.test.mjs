@@ -19,19 +19,13 @@ test(
   async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "bah-cli-config-"));
     fs.mkdirSync(
-      path.join(
-        home,
-        "plugins",
-        "cache",
-        "custom-market",
-        "better-agent-handler",
-      ),
+      path.join(home, "plugins", "cache", "custom-market", "delegate"),
       { recursive: true },
     );
     fs.writeFileSync(
       path.join(home, "config.toml"),
       `
-[plugins."better-agent-handler@custom-market"]
+[plugins."delegate@custom-market"]
 enabled = true
 [plugins."unrelated@custom-market"]
 enabled = true
@@ -90,10 +84,7 @@ enabled = true
       }
 
       assert.ok(config, "Codex must return resolved configuration");
-      assert.equal(
-        config.plugins["better-agent-handler@custom-market"].enabled,
-        false,
-      );
+      assert.equal(config.plugins["delegate@custom-market"].enabled, false);
       assert.equal(config.plugins["unrelated@custom-market"].enabled, true);
       assert.ok(!Object.keys(config.plugins).some((key) => key.includes('"')));
     } finally {

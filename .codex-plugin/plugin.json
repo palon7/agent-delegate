@@ -1,5 +1,5 @@
 {
-  "name": "better-agent-handler",
+  "name": "delegate",
   "version": "0.2.2",
   "description": "Delegate work to external agents, end the Codex turn, and resume on completion without polling.",
   "author": {
@@ -8,13 +8,13 @@
   },
   "skills": "./skills/",
   "interface": {
-    "displayName": "Better Agent Handler",
+    "displayName": "Agent Delegate",
     "shortDescription": "Delegate to OpenCode or Codex without polling.",
     "longDescription": "Run OpenCode or Codex through shared detached jobs and resume once through codex queue. Persist per-agent SRT preferences; Codex uses native sandboxing and automatic approval review.",
     "developerName": "palon7",
     "category": "Productivity",
     "capabilities": [],
-    "defaultPrompt": "Use $opencode to review the current changes without editing files."
+    "defaultPrompt": "Use $delegate:opencode to review the current changes without editing files."
   },
   "repository": "https://github.com/palon7/better-agent-handler",
   "homepage": "https://github.com/palon7/better-agent-handler#readme"

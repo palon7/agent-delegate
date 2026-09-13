@@ -66,7 +66,7 @@ export function dataRoot(
   if (!p.isAbsolute(base))
     throw new Error("Handler data directory must be absolute");
 
-  return p.join(base, "better-agent-handler");
+  return p.join(base, "delegate");
 }
 
 export function repositoryPaths(cwd: string, agent: AgentName) {

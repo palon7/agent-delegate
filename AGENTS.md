@@ -1,4 +1,4 @@
-# Better Agent Handler
+# Agent Delegate
 
 ## Purpose
 

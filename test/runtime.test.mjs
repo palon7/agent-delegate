@@ -99,7 +99,7 @@ function jobFixture(t, payload = events, exit = 0, queueExit = 0) {
   const srt = executable(
     root,
     "fake-srt",
-    `if (process.argv.includes('--help')) { console.log('--auto'); process.exit(0); } if (process.argv.includes('--version')) { console.log('0.0.76'); process.exit(0); } if (process.argv.includes('-e')) { process.stdout.write('better-agent-handler-srt-ready'); process.exit(0); } require('fs').writeFileSync(${JSON.stringify(path.join(directory, "invocation.json"))}, JSON.stringify({args: process.argv.slice(2), cwd: process.cwd(), env: process.env})); process.stdout.write(${JSON.stringify(stream)}); process.exitCode=${exit};`,
+    `if (process.argv.includes('--help')) { console.log('--auto'); process.exit(0); } if (process.argv.includes('--version')) { console.log('0.0.76'); process.exit(0); } if (process.argv.includes('-e')) { process.stdout.write('delegate-srt-ready'); process.exit(0); } require('fs').writeFileSync(${JSON.stringify(path.join(directory, "invocation.json"))}, JSON.stringify({args: process.argv.slice(2), cwd: process.cwd(), env: process.env})); process.stdout.write(${JSON.stringify(stream)}); process.exitCode=${exit};`,
   );
   const codex = executable(
     root,
@@ -451,13 +451,7 @@ test("Codex command preserves explicit model/session, native review policy and c
   Object.assign(job, { agent: "codex", sandbox: "none", mode: "review" });
   job.codex_home = path.join(job.state_dir, "existing-codex-home");
   fs.mkdirSync(
-    path.join(
-      job.codex_home,
-      "plugins",
-      "cache",
-      "custom-market",
-      "better-agent-handler",
-    ),
+    path.join(job.codex_home, "plugins", "cache", "custom-market", "delegate"),
     { recursive: true },
   );
   const initial = command(job);
@@ -480,11 +474,7 @@ test("Codex command preserves explicit model/session, native review policy and c
   assert.equal(env.CODEX_API_KEY, "fake-inherited-key");
   assert.ok(!initial.includes("--ignore-user-config"));
   assert.ok(!initial.includes("--ignore-rules"));
-  assert.ok(
-    initial.includes(
-      "plugins.better-agent-handler@custom-market.enabled=false",
-    ),
-  );
+  assert.ok(initial.includes("plugins.delegate@custom-market.enabled=false"));
   for (const removed of [
     "features.plugins=false",
     "features.apps=false",
@@ -521,13 +511,7 @@ test("Codex command preserves explicit model/session, native review policy and c
   ]);
 
   fs.mkdirSync(
-    path.join(
-      job.codex_home,
-      "plugins",
-      "cache",
-      "invalid.market",
-      "better-agent-handler",
-    ),
+    path.join(job.codex_home, "plugins", "cache", "invalid.market", "delegate"),
     { recursive: true },
   );
   assert.throws(
@@ -616,7 +600,7 @@ test("Codex final message is read after process close, shared review prompt and 
     .trim()
     .split("\n");
   assert.equal(notifications.length, 1);
-  assert.ok(notifications[0].includes("$codex-delegate"));
+  assert.ok(notifications[0].includes("$delegate:codex"));
 });
 
 test("Codex exit, terminal errors, malformed streams and missing final files cannot certify success", async (t) => {
@@ -1053,7 +1037,7 @@ test("preparation skips SRT for disabled agents and keeps repository paths stabl
 
   setSandbox("opencode", "none");
   const config = fs.readFileSync(
-    path.join(root, "config", "better-agent-handler", "config.json"),
+    path.join(root, "config", "delegate", "config.json"),
   );
   const prepared = prepare("opencode", "--new-job");
   assert.equal(prepared.srt, undefined);
@@ -1062,9 +1046,7 @@ test("preparation skips SRT for disabled agents and keeps repository paths stabl
   assert.equal(fs.statSync(prepared.job_dir).mode & 0o777, 0o700);
   assert.notEqual(prepare("opencode", "--new-job").job_dir, prepared.job_dir);
   assert.deepEqual(
-    fs.readFileSync(
-      path.join(root, "config", "better-agent-handler", "config.json"),
-    ),
+    fs.readFileSync(path.join(root, "config", "delegate", "config.json")),
     config,
   );
 

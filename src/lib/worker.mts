@@ -145,7 +145,7 @@ async function notify(job: Job, directory: string, state: State) {
   const skill = adapterFor(job.agent).skill;
   const message =
     `${job.agent} worker finished: ${state.status}. Job directory: ${JSON.stringify(directory)}. ` +
-    `Continue under $${skill} using report.md and, when needed, the diff against the saved baseline. ` +
+    `Continue under $delegate:${skill} using report.md and, when needed, the diff against the saved baseline. ` +
     "Do not inspect the session transcript. Continue the authorized task. Do not rerun this job or load the entire log.";
 
   try {

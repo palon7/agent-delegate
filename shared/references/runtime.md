@@ -47,7 +47,7 @@ On `started`, report the launch and returned `sandbox`, then **end the turn**. T
 
 ## Saved preference
 
-`prepare.mjs` and `agent_job.mjs` read `$XDG_CONFIG_HOME/better-agent-handler/config.json`, falling back to `~/.config/better-agent-handler/config.json`. Missing entries mean OpenCode=`srt`, Codex=`none`; reading them does not write a file. Each job records its resolved value. Follow-ups read the current saved setting; if it differs from the previous job, use it and report the change rather than rewriting it.
+`prepare.mjs` and `agent_job.mjs` read `$XDG_CONFIG_HOME/delegate/config.json`, falling back to `~/.config/delegate/config.json`. Missing entries mean OpenCode=`srt`, Codex=`none`; reading them does not write a file. Each job records its resolved value. Follow-ups read the current saved setting; if it differs from the previous job, use it and report the change rather than rewriting it.
 
 Only change the preference when the user requests it:
 

@@ -3,7 +3,7 @@ name: opencode
 description: Delegate implementation, review, or another requested task to OpenCode. Use when the user invokes this skill or asks to delegate to OpenCode; not for ordinary coding or questions about OpenCode.
 ---
 
-# OpenCode for Codex
+# OpenCode
 
 Use OpenCode while the parent Codex coordinates and assesses the result. Updating this plugin or explaining the skill does not authorize a model run.
 

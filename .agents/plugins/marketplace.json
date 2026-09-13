@@ -1,11 +1,11 @@
 {
-  "name": "better-agent-handler",
+  "name": "agent-delegate",
   "interface": {
-    "displayName": "Better Agent Handler"
+    "displayName": "Agent Delegate"
   },
   "plugins": [
     {
-      "name": "better-agent-handler",
+      "name": "delegate",
       "source": {
         "source": "local",
         "path": "./"

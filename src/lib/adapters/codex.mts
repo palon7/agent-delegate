@@ -11,14 +11,14 @@ function codexHome(job: Job): string {
 }
 
 function handlerPluginOverrides(home: string): string[] {
-  const marketplaces = new Set(["better-agent-handler"]);
+  const marketplaces = new Set(["agent-delegate"]);
   const cache = path.join(home, "plugins", "cache");
 
   if (fs.existsSync(cache)) {
     for (const entry of fs.readdirSync(cache, { withFileTypes: true })) {
       if (
         entry.isDirectory() &&
-        fs.existsSync(path.join(cache, entry.name, "better-agent-handler"))
+        fs.existsSync(path.join(cache, entry.name, "delegate"))
       )
         marketplaces.add(entry.name);
     }
@@ -27,16 +27,16 @@ function handlerPluginOverrides(home: string): string[] {
   return [...marketplaces].map((marketplace) => {
     if (!/^[A-Za-z0-9_-]+$/.test(marketplace))
       throw new Error(
-        `Cannot disable Better Agent Handler for unsupported marketplace name: ${marketplace}`,
+        `Cannot disable Agent Delegate for unsupported marketplace name: ${marketplace}`,
       );
 
     // Codex -c splits keys on dots; it does not unquote TOML key segments.
-    return `plugins.better-agent-handler@${marketplace}.enabled=false`;
+    return `plugins.delegate@${marketplace}.enabled=false`;
   });
 }
 
 export const codex: AgentAdapter = {
-  skill: "codex-delegate",
+  skill: "codex",
   promptViaStdin: true,
   preflight(executable) {
     const help = spawnSync(executable, ["exec", "--help"], {

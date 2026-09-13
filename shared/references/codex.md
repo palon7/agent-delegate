@@ -12,7 +12,7 @@ Use `--model` for an explicit model choice and `--codex-profile` for an explicit
 
 The adapter overrides delegation-related settings: automatic approval review, read-only for review or workspace-write for implementation, no extra writable roots, no implicit temporary-directory write grants, and recursion prevention. Existing network settings and custom reviewer policy remain in effect.
 
-Better Agent Handler is disabled through per-plugin CLI settings, covering the standard marketplace and other copies found in the local plugin cache. Other plugins remain available. Built-in subagent delegation is disabled, and the inherited depth marker rejects calls back into the handler. This prevents accidental recursion, not deliberate bypass by a process that changes its environment or the runner.
+Agent Delegate is disabled through per-plugin CLI settings, covering the standard marketplace and other copies found in the local plugin cache. Other plugins remain available. Built-in subagent delegation is disabled, and the inherited depth marker rejects calls back into the handler. This prevents accidental recursion, not deliberate bypass by a process that changes its environment or the runner.
 
 ## State and resuming
 

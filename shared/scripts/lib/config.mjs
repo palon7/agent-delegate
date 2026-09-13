@@ -9,7 +9,7 @@ export function configPath() {
     const root = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
     if (!path.isAbsolute(root))
         throw new Error("XDG_CONFIG_HOME must be absolute");
-    return path.join(root, "better-agent-handler", "config.json");
+    return path.join(root, "delegate", "config.json");
 }
 /** Reading defaults never writes or changes a user's preference. */
 export function readConfig(file = configPath()) {

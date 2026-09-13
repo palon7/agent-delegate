@@ -50,7 +50,7 @@ export function dataRoot(platform = process.platform, env = process.env, home = 
         base = env.XDG_DATA_HOME || p.join(home, ".local", "share");
     if (!p.isAbsolute(base))
         throw new Error("Handler data directory must be absolute");
-    return p.join(base, "better-agent-handler");
+    return p.join(base, "delegate");
 }
 export function repositoryPaths(cwd, agent) {
     const repository = fs.realpathSync(cwd);

@@ -4,7 +4,7 @@ Use only when `prepare.mjs` reports `sandbox: "srt"`, a start attempt reports an
 
 ## First use
 
-1. Inspect the preparation output. The supported version is **0.0.76**. Its dedicated prefix is `<handler-data>/tools/srt/0.0.76`, where handler data is `$XDG_DATA_HOME/better-agent-handler` (default `~/.local/share/better-agent-handler`) on Linux, or `~/Library/Application Support/better-agent-handler` on macOS.
+1. Inspect the preparation output. The supported version is **0.0.76**. Its dedicated prefix is `<handler-data>/tools/srt/0.0.76`, where handler data is `$XDG_DATA_HOME/delegate` (default `~/.local/share/delegate`) on Linux, or `~/Library/Application Support/delegate` on macOS.
 2. Check the listed `required_tools` with `command -v` or an equivalent lookup; preparation does not check their availability. If installation is needed, propose the exact `install_argv` command and missing system packages. Linux requires **bubblewrap, socat, and ripgrep** (`bwrap`, `socat`, `rg` on PATH). Version 0.0.76 requires no extra packages on macOS. Ask for permission before installing. The npm command has this form, with the returned absolute prefix:
 
    ```bash

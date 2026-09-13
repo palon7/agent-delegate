@@ -49,7 +49,7 @@ export function checkSrtVersion(cli) {
 }
 /** Runs no agent: verifies initialization and child execution before detaching. */
 export function checkSrtExecution(cli, settings, cwd, env) {
-    const marker = "better-agent-handler-srt-ready";
+    const marker = "delegate-srt-ready";
     const [program, ...args] = sandboxCommand(cli, settings, env.TMPDIR, [
         process.execPath,
         "-e",

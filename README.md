@@ -1,4 +1,4 @@
-# Better Agent Handler
+# Agent Delegate
 
 A Codex plugin for delegating work to OpenCode or another Codex session. Codex resumes when the work finishes instead of repeatedly checking progress and spending tokens while it waits.
 
@@ -11,7 +11,7 @@ A Codex plugin for delegating work to OpenCode or another Codex session. Codex r
 
 ### Optional
 
-- OpenCode for `$opencode`
+- OpenCode for `$delegate:opencode`
 - With SRT on Linux
   - bubblewrap
   - socat
@@ -21,18 +21,18 @@ A Codex plugin for delegating work to OpenCode or another Codex session. Codex r
 
 ```bash
 codex plugin marketplace add palon7/better-agent-handler
-codex plugin add better-agent-handler@better-agent-handler
+codex plugin add delegate@agent-delegate
 ```
 
 Start a new Codex task after installation.
 
 ## Usage
 
-Use `$opencode` or `$codex-delegate` for implementation and code review:
+Use `$delegate:opencode` or `$delegate:codex` for implementation and code review:
 
 ```text
-$opencode Review this branch against develop.
-$codex-delegate Implement filtering in the search endpoint.
+$delegate:opencode Review this branch against develop.
+$delegate:codex Implement filtering in the search endpoint.
 ```
 
 If you don't specify a review scope, the skill checks unstaged and untracked files first, then staged changes, then changes against the base branch. It reviews the first scope with changes.
@@ -43,7 +43,7 @@ OpenCode uses SRT (Anthropic Sandbox Runtime) by default. Codex uses its own san
 
 You can enable or disable SRT for each agent. SRT must be installed when enabled; disabling it for OpenCode removes shell and network isolation.
 
-Ask Codex to change the setting (for example, “Disable SRT for OpenCode”), or edit `~/.config/better-agent-handler/config.json`. If `XDG_CONFIG_HOME` is set, use `$XDG_CONFIG_HOME/better-agent-handler/config.json` instead. Codex changes this preference only when you request it.
+Ask Codex to change the setting (for example, “Disable SRT for OpenCode”), or edit `~/.config/delegate/config.json`. If `XDG_CONFIG_HOME` is set, use `$XDG_CONFIG_HOME/delegate/config.json` instead. Codex changes this preference only when you request it.
 
 The following configuration matches the defaults used when no file exists. Set an agent's `sandbox` to `"srt"` to enable SRT or `"none"` to disable it:
 
