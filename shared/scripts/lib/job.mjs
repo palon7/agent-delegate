@@ -1,0 +1,224 @@
+import fs from "node:fs";
+import path from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { sandboxFor } from "./config.mjs";
+import { adapterFor } from "./adapters/index.mjs";
+import { repositoryPaths, srtPaths } from "./paths.mjs";
+import { checkSrtVersion, checkSrtExecution, validateProfile } from "./srt.mjs";
+import { gitText, isInside } from "./snapshot.mjs";
+const INHERITED_ENV = ["PATH", "USER", "LOGNAME", "LANG", "LC_ALL"];
+const WORKER_ENTRY = fileURLToPath(new URL("./worker_entry.mjs", import.meta.url));
+export function isMode(value) {
+    return value === "implement" || value === "review";
+}
+function writeJsonAtomic(target, value) {
+    const temporary = target.replace(/\.[^.\/]+$/, "") + ".tmp";
+    fs.writeFileSync(temporary, JSON.stringify(value, null, 2) + "\n", {
+        mode: 0o600,
+    });
+    fs.renameSync(temporary, target);
+}
+export function saveState(directory, state) {
+    writeJsonAtomic(path.join(directory, "state.json"), state);
+}
+export async function withLogFile(file, use) {
+    const fd = fs.openSync(file, "wx", 0o600);
+    try {
+        return await use(fd);
+    }
+    finally {
+        fs.closeSync(fd);
+    }
+}
+export function assertNotDelegated(depth = 0) {
+    if (!Number.isInteger(depth) ||
+        depth !== 0 ||
+        (process.env.BETTER_AGENT_HANDLER_DEPTH !== undefined &&
+            process.env.BETTER_AGENT_HANDLER_DEPTH !== "0"))
+        throw new Error("Recursive delegation is disabled");
+}
+/** The small environment given to an agent instead of all host variables. */
+export function jobEnvironment(passEnv) {
+    const env = {};
+    for (const key of INHERITED_ENV)
+        if (process.env[key] !== undefined)
+            env[key] = process.env[key];
+    const reserved = new Set([
+        "CODEX_THREAD_ID",
+        "CODEX_HOME",
+        "BETTER_AGENT_HANDLER_DEPTH",
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CACHE_HOME",
+        "XDG_STATE_HOME",
+        "XDG_RUNTIME_DIR",
+        "TMPDIR",
+        "OPENCODE_CONFIG",
+        "OPENCODE_CONFIG_CONTENT",
+        "OPENCODE_CONFIG_DIR",
+    ]);
+    for (const key of passEnv) {
+        if (reserved.has(key))
+            throw new Error(`Reserved child environment variable: ${key}`);
+        if (process.env[key] === undefined)
+            throw new Error(`Missing environment variable: ${key}`);
+        env[key] = process.env[key];
+    }
+    return env;
+}
+export async function start(args) {
+    assertNotDelegated(args.delegationDepth);
+    if (process.platform === "win32")
+        throw new Error("Native Windows job execution is not supported. Use WSL2.");
+    const sandbox = sandboxFor(args.agent);
+    const adapter = adapterFor(args.agent);
+    const defaults = repositoryPaths(args.cwd, args.agent);
+    const directory = fs.realpathSync(args.jobDir);
+    const stateDir = fs.realpathSync(args.stateDir ?? defaults.state_dir);
+    const cwd = fs.realpathSync(args.cwd);
+    validateDirectories(directory, stateDir, cwd);
+    const thread = canonicalThreadId(args.thread);
+    const codex = resolveExecutable(args.codex);
+    const executable = resolveExecutable(args.executable ?? args.agent);
+    const srt = sandbox === "srt"
+        ? args.srt
+            ? resolveExecutable(args.srt)
+            : srtPaths().cli
+        : undefined;
+    if (srt)
+        checkSrtVersion(srt);
+    const profile = sandbox === "srt"
+        ? path.resolve(args.profile ?? path.join(stateDir, "srt-profile.json"))
+        : undefined;
+    if (profile) {
+        if (!fs.existsSync(profile))
+            throw new Error(`SRT profile is missing: ${profile}. Prepare it with user approval.`);
+        validateProfile(profile);
+    }
+    adapter.preflight(executable);
+    assertQueueAvailable(codex);
+    // Fail before launch if a passed variable is missing.
+    jobEnvironment(args.passEnv);
+    const job = {
+        agent: args.agent,
+        sandbox,
+        delegation_depth: 0,
+        job_dir: directory,
+        state_dir: stateDir,
+        cwd,
+        srt_settings: profile ? path.join(directory, "srt.json") : undefined,
+        thread,
+        session: args.session,
+        model: args.model,
+        mode: args.mode,
+        pass_env: args.passEnv,
+        codex,
+        srt,
+        executable,
+    };
+    // An existing job is never reused, including failed launches.
+    if (fs.existsSync(path.join(directory, "job.json")))
+        throw new Error("Job already exists; use prepare.mjs --new-job");
+    // Claim before writing the derived profile so concurrent launches cannot
+    // overwrite the profile of a job that has already started.
+    fs.writeFileSync(path.join(directory, "job.json"), JSON.stringify(job, null, 2), { flag: "wx", mode: 0o600 });
+    try {
+        adapter.prepare(stateDir);
+        if (profile) {
+            executionProfile(profile, cwd, stateDir, directory, args.mode);
+            checkSrtExecution(srt, job.srt_settings, stateDir, {
+                ...jobEnvironment(job.pass_env),
+                ...adapter.environment(job),
+                BETTER_AGENT_HANDLER_DEPTH: "1",
+                GIT_OPTIONAL_LOCKS: "0",
+            });
+        }
+        const pid = await withLogFile(path.join(directory, "worker.log"), (log) => launchWorker(directory, stateDir, log));
+        return { status: "started", pid, job_dir: directory, thread, sandbox };
+    }
+    catch (error) {
+        saveState(directory, {
+            status: "launch_failed",
+            notification: "not_attempted",
+            error: String(error),
+        });
+        throw error;
+    }
+}
+export function executionProfile(profile, cwd, stateDir, directory, mode) {
+    const settings = JSON.parse(fs.readFileSync(profile, "utf8"));
+    const filesystem = (settings.filesystem ??= {});
+    filesystem.allowWrite = mode === "implement" ? [stateDir, cwd] : [stateDir];
+    const gitDirectories = ["--git-dir", "--git-common-dir"].map((flag) => gitText(cwd, ["rev-parse", "--path-format=absolute", flag]));
+    (filesystem.denyWrite ??= []).push(fs.realpathSync(profile), path.join(cwd, ".git"), ...gitDirectories, ...(mode === "review" ? [cwd] : []));
+    const target = path.join(directory, "srt.json");
+    writeJsonAtomic(target, settings);
+    return target;
+}
+function validateDirectories(directory, stateDir, cwd) {
+    if (isInside(stateDir, cwd) || isInside(cwd, stateDir))
+        throw new Error("state-dir and repository must be separate, non-nested directories");
+    if (!isInside(directory, stateDir) || directory === stateDir)
+        throw new Error("job-dir must be a fresh directory inside state-dir");
+    const stat = fs.statSync(directory);
+    if (!stat.isDirectory() ||
+        stat.uid !== process.getuid?.() ||
+        stat.mode & 0o077)
+        throw new Error("job-dir must be owned by this user with mode 0700");
+    if (!fs.statSync(path.join(directory, "request.md")).isFile())
+        throw new Error("job-dir must contain request.md");
+}
+/** Accept common UUID spellings and return the lowercase hyphenated form. */
+function canonicalThreadId(value) {
+    const hex = value
+        .replace(/^urn:uuid:/i, "")
+        .replace(/[{}-]/g, "")
+        .toLowerCase();
+    if (!/^[a-f\d]{32}$/.test(hex))
+        throw new Error("--thread or CODEX_THREAD_ID must be a UUID");
+    return hex.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+}
+function resolveExecutable(value) {
+    const candidates = value.includes("/")
+        ? [path.resolve(value)]
+        : (process.env.PATH ?? "")
+            .split(path.delimiter)
+            .map((p) => path.resolve(p, value));
+    for (const candidate of candidates) {
+        try {
+            fs.accessSync(candidate, fs.constants.X_OK);
+            if (fs.statSync(candidate).isFile())
+                return candidate;
+        }
+        catch {
+            /* try next PATH entry */
+        }
+    }
+    throw new Error(`Executable not found: ${value}. The required tool is not installed or not available at the specified path.`);
+}
+function assertQueueAvailable(codex) {
+    const check = spawnSync(codex, ["queue", "--help"], {
+        stdio: ["ignore", "ignore", "pipe"],
+        timeout: 10000,
+        killSignal: "SIGKILL",
+    });
+    if (check.error || check.status !== 0)
+        throw new Error(`codex queue unavailable: ${check.error ?? check.stderr}`);
+}
+async function launchWorker(directory, stateDir, log) {
+    // The worker inherits the full environment because `codex queue` needs it
+    // and the worker reads the --pass-env values from it.
+    const child = spawn(process.execPath, [WORKER_ENTRY, directory], {
+        cwd: stateDir,
+        stdio: ["ignore", log, log],
+        detached: true,
+    });
+    await new Promise((resolve, reject) => {
+        child.once("spawn", resolve);
+        child.once("error", reject);
+    });
+    child.unref();
+    return child.pid;
+}

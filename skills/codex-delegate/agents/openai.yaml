@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Delegate"
+  short_description: "Request tasks such as implementation or review from another Codex. Use this only when instructed by the user."
+  default_prompt: "Use $codex-delegate to review the current changes without editing files."

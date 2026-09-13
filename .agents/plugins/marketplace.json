@@ -1,0 +1,20 @@
+{
+  "name": "better-agent-handler",
+  "interface": {
+    "displayName": "Better Agent Handler"
+  },
+  "plugins": [
+    {
+      "name": "better-agent-handler",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

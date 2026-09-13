@@ -1,0 +1,63 @@
+# SRT setup
+
+Use only when `prepare.mjs` reports `sandbox: "srt"`, a start attempt reports an SRT error, or the user explicitly requests SRT setup. For `sandbox: "none"`, do not check or install SRT or its dependencies. Never change the saved sandbox preference as a setup workaround.
+
+## First use
+
+1. Inspect the preparation output. The supported version is **0.0.76**. Its dedicated prefix is `<handler-data>/tools/srt/0.0.76`, where handler data is `$XDG_DATA_HOME/better-agent-handler` (default `~/.local/share/better-agent-handler`) on Linux, or `~/Library/Application Support/better-agent-handler` on macOS.
+2. Check the listed `required_tools` with `command -v` or an equivalent lookup; preparation does not check their availability. If installation is needed, propose the exact `install_argv` command and missing system packages. Linux requires **bubblewrap, socat, and ripgrep** (`bwrap`, `socat`, `rg` on PATH). Version 0.0.76 requires no extra packages on macOS. Ask for permission before installing. The npm command has this form, with the returned absolute prefix:
+
+   ```bash
+   npm install --prefix "$srt_prefix" --save-exact @anthropic-ai/sandbox-runtime@0.0.76
+   ```
+
+   Do not install globally or substitute an unpinned release. The runner defaults to the returned `srt.cli` Node entry point; pass that path with `--srt` if specifying it explicitly. It checks package metadata because this release's CLI version banner is unreliable.
+3. Prepare the concrete profile below at the returned `profile` path and request approval for its filesystem and network access. Include any credential copy needed for the private state. These requests may be combined with installation approval. Reuse an approved profile on later runs; explain additional access before changing it.
+4. Install and write only what was approved, validate without model inference, then continue the authorized task. Report a declined setup request as a blocker.
+
+SRT 0.0.76 supports native Windows as an alpha feature, using an elevated `windows-install` step and a dedicated sandbox account. This runner still relies on POSIX permissions and process handling. Use WSL2 and the Linux setup; do not install native SRT for a handler job. Native Windows support needs separate runner work and testing.
+
+See the [upstream platform requirements](https://github.com/anthropics/sandbox-runtime/tree/v0.0.76#platform-specific-dependencies); the release's dependency checker restricts ripgrep to Linux.
+
+## Filesystem and network profile
+
+Create the profile with an editing tool at the persistent `profile` path returned by preparation. Resolve symlinks first. This Linux/macOS-oriented template uses placeholders that must be replaced with actual absolute paths and provider hosts; do not pass placeholders literally to SRT:
+
+```json
+{
+  "network": {
+    "allowedDomains": ["<provider-api-host>", "models.dev"],
+    "deniedDomains": []
+  },
+  "filesystem": {
+    "denyRead": ["/home", "/Users", "/root", "/tmp", "/private/tmp", "/var/tmp", "/run", "/mnt", "/media"],
+    "allowRead": [
+      "<repository-root>",
+      "<git-dir>",
+      "<git-common-dir>",
+      "<state-directory>",
+      "<required-tool-installation-directories>"
+    ],
+    "allowWrite": ["<repository-root>", "<state-directory>"],
+    "denyWrite": ["<repository-root>/.git", "<git-dir>", "<git-common-dir>"]
+  }
+}
+```
+
+Resolve Git metadata with `git -C <repository> rev-parse --path-format=absolute --git-dir` and `--git-common-dir`. Do not grant another checkout's source directory just because its Git metadata is needed. Add nonstandard workspace/home locations to the denied regions as appropriate for this host, then allow only the selected paths. The template is not a claim that every host stores private files under these default roots.
+
+Tool read access must cover resolved Node/agent/SRT installations and SRT's runtime helpers, not just executable symlinks. Tools stay read-only. Preserve default process and Unix-socket restrictions. Network allowlists should cover the configured provider, model metadata, and task-required package registries; do not inherit a provider-specific list from an unrelated setup. Explain additional required destinations before changing the approved scope.
+
+For SRT, allow only its `tools/srt/<version>` installation, not the whole handler data directory, which also contains other repositories' credentials.
+
+The launcher derives a per-job profile with the same read/network scope and narrower write boundaries: state plus repository for implementation, state only for review, and Git metadata and the approved source profile always protected. Review additionally denies writing the repository even if an ancestor was previously writable.
+
+## Validation
+
+The runner performs a no-model startup probe with the job profile and private environment before detaching. For a new profile, also test its filesystem boundaries from the external state directory using the adapter’s private environment. Confirm SRT can launch the installed agent's `--version` and read the selected repository. Verify that a write to a disposable file in the source is blocked in review mode, while state writes succeed. For implementation, verify writes only with disposable fixtures in an isolated test repository. Check host-side effects; a hidden path can be a private tmpfs rather than the original host path.
+
+Use the runner's SRT command construction for these checks: SRT needs a short private `TMPDIR` for Unix sockets, while the wrapped agent receives `state_dir/tmp`. Do not pass a long state path as SRT's own `TMPDIR`.
+
+Do not run a paid prompt to validate a profile without an explicit request. Record the tested OS/tools, actual profile/state paths, and any limitations outside the published skill (for example in a private installation note). Existing sessions and historical local validation records are not distribution assets.
+
+Sources: [SRT filesystem rules](https://github.com/anthropics/sandbox-runtime), [OpenCode configuration](https://opencode.ai/docs/config/), [OpenCode permissions](https://opencode.ai/docs/permissions/).
