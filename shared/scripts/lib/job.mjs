@@ -172,7 +172,8 @@ export async function start(args) {
 export function executionProfile(profile, cwd, stateDir, directory, mode, runtimeWrites = [], protectedSettings = []) {
     const settings = JSON.parse(fs.readFileSync(profile, "utf8"));
     const filesystem = (settings.filesystem ??= {});
-    for (const required of protectedSettings.filter((file) => fs.existsSync(file))) {
+    const existingSettings = protectedSettings.filter((file) => fs.existsSync(file));
+    for (const required of existingSettings) {
         if (!(filesystem.allowRead ?? []).some((allowed) => path.isAbsolute(allowed) && isInside(required, allowed)))
             throw new Error(`SRT profile must approve configuration read access: ${required}`);
     }
@@ -195,7 +196,7 @@ export function executionProfile(profile, cwd, stateDir, directory, mode, runtim
             throw new Error(`SRT profile needs a separate allowRead entry for ${required}, without an enclosing read-only directory`);
     }
     const gitDirectories = ["--git-dir", "--git-common-dir"].map((flag) => gitText(cwd, ["rev-parse", "--path-format=absolute", flag]));
-    (filesystem.denyWrite ??= []).push(...protectedSettings.map((file) => fs.existsSync(file) ? fs.realpathSync(file) : file), ...protectedSettings, fs.realpathSync(profile), path.join(cwd, ".git"), ...gitDirectories, ...(mode === "review" ? [cwd] : []));
+    (filesystem.denyWrite ??= []).push(...existingSettings.map((file) => fs.realpathSync(file)), ...existingSettings, fs.realpathSync(profile), path.join(cwd, ".git"), ...gitDirectories, ...(mode === "review" ? [cwd] : []));
     const target = path.join(directory, "srt.json");
     writeJsonAtomic(target, settings);
     return target;

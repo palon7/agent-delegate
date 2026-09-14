@@ -3,10 +3,10 @@ import path from "node:path";
 import { SRT_VERSION } from "./paths.mjs";
 import { executableCommand } from "./executable.mjs";
 import { spawnSyncCaptured } from "./spawn.mjs";
-// SRT creates Unix sockets here. Do not inherit the agent's potentially long
-// TMPDIR or the host's user-specific macOS temporary directory.
-export function createSrtTemp() {
-    return fs.mkdtempSync("/tmp/bah-srt-");
+// Keep proxy sockets inside the short, approved job directory: a separate
+// /tmp directory is hidden by the profile's /tmp read restriction on Linux.
+export function createSrtTemp(jobDirectory) {
+    return fs.mkdtempSync(path.join(jobDirectory, "srt-"));
 }
 export function sandboxCommand(cli, settings, agentTmp, command) {
     const [program, args] = executableCommand(cli);
@@ -53,7 +53,7 @@ export function checkSrtExecution(cli, settings, cwd, env) {
         "-e",
         `process.stdout.write(${JSON.stringify(marker)})`,
     ]);
-    const temporary = createSrtTemp();
+    const temporary = createSrtTemp(path.dirname(settings));
     try {
         const result = spawnSyncCaptured(program, args, {
             cwd,

@@ -44,7 +44,7 @@ export async function worker(directory) {
         if (job.delegation_depth !== 0)
             throw new Error("Recursive delegation is disabled");
         assertSandboxSupported(job.sandbox);
-        const temporary = job.sandbox === "srt" ? createSrtTemp() : undefined;
+        const temporary = job.sandbox === "srt" ? createSrtTemp(directory) : undefined;
         try {
             await runAgent(job, directory, state, temporary);
         }
