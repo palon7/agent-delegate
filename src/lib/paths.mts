@@ -45,7 +45,7 @@ export function opencodePaths(cwd: string) {
 
   return {
     agent_config: config,
-    config_paths: [...new Set(settings)],
+    config_paths: [...new Set(settings)].filter((file) => fs.existsSync(file)),
     runtime_write_paths: [...new Set(writes)],
   };
 }

@@ -294,9 +294,10 @@ export function executionProfile(
   const settings = JSON.parse(fs.readFileSync(profile, "utf8"));
   const filesystem = (settings.filesystem ??= {});
 
-  for (const required of protectedSettings.filter((file) =>
+  const existingSettings = protectedSettings.filter((file) =>
     fs.existsSync(file),
-  )) {
+  );
+  for (const required of existingSettings) {
     if (
       !(filesystem.allowRead ?? []).some(
         (allowed: string) =>
@@ -346,10 +347,8 @@ export function executionProfile(
     gitText(cwd, ["rev-parse", "--path-format=absolute", flag]),
   );
   (filesystem.denyWrite ??= []).push(
-    ...protectedSettings.map((file) =>
-      fs.existsSync(file) ? fs.realpathSync(file) : file,
-    ),
-    ...protectedSettings,
+    ...existingSettings.map((file) => fs.realpathSync(file)),
+    ...existingSettings,
     fs.realpathSync(profile),
     path.join(cwd, ".git"),
     ...gitDirectories,

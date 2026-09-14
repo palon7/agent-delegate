@@ -328,7 +328,7 @@ test("worker success, bounded single notification, environment and duplicate cla
   if (windows) {
     assert.equal(invocation.env.TMPDIR, path.join(job.state_dir, "tmp"));
   } else {
-    assert.match(invocation.env.TMPDIR, /^\/tmp\/bah-srt-/);
+    assert.equal(path.dirname(invocation.env.TMPDIR), directory);
     assert.equal(fs.existsSync(invocation.env.TMPDIR), false);
     assert.ok(
       invocation.args.includes(`TMPDIR=${path.join(job.state_dir, "tmp")}`),
@@ -1035,7 +1035,12 @@ test("OpenCode paths use existing XDG locations and require approval for shared 
   mockEnv(t, "XDG_CONFIG_HOME", path.join(root, "config"));
   mockEnv(t, "OPENCODE_CONFIG", "custom.jsonc");
   mockEnv(t, "OPENCODE_DB", path.join(root, "database", "sessions.db"));
+  assert.ok(
+    !opencodePaths(repo).config_paths.includes(path.join(repo, "custom.jsonc")),
+  );
+  fs.writeFileSync(path.join(repo, "custom.jsonc"), "{}");
   const paths = opencodePaths(repo);
+  assert.ok(paths.config_paths.every((file) => fs.existsSync(file)));
   assert.ok(
     paths.runtime_write_paths.includes(path.join(root, "data", "opencode")),
   );
@@ -1065,9 +1070,12 @@ test("OpenCode paths use existing XDG locations and require approval for shared 
     directory,
     "implement",
     [],
-    paths.config_paths,
+    [...paths.config_paths, path.join(repo, ".opencode")],
   );
   const settings = JSON.parse(fs.readFileSync(protectedProfile));
+  assert.ok(
+    !settings.filesystem.denyWrite.includes(path.join(repo, ".opencode")),
+  );
   assert.ok(
     settings.filesystem.denyWrite.includes(path.join(repo, "custom.jsonc")),
   );
@@ -1180,7 +1188,10 @@ test("preparation skips SRT for disabled agents and keeps repository paths stabl
         path.join(root, "data", "opencode"),
       ),
     );
-    assert.ok(opencode.srt.config_read_paths.includes(opencode.agent_config));
+    assert.equal(
+      opencode.srt.config_read_paths.includes(opencode.agent_config),
+      fs.existsSync(opencode.agent_config),
+    );
     assert.equal(opencode.srt.version, "0.0.76");
     assert.deepEqual(opencode.srt.install_argv, [
       "npm",

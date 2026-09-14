@@ -22,12 +22,13 @@ test(
   },
   () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "bah-integration-"));
-    const temporary = createSrtTemp();
+    const directory = path.join(root, "job");
+    fs.mkdirSync(directory);
+    const temporary = createSrtTemp(directory);
 
     try {
       const repo = path.join(root, "repo");
       const state = path.join(root, "long-state-" + "x".repeat(120));
-      const directory = path.join(root, "job");
       fs.mkdirSync(repo);
       fs.mkdirSync(directory, { recursive: true });
       fs.mkdirSync(path.join(state, "tmp"), { recursive: true });
@@ -44,7 +45,7 @@ test(
       const configFile = path.join(config, "opencode.json");
       fs.writeFileSync(configFile, '{"permission":"deny"}');
       const original = JSON.stringify({
-        network: { allowedDomains: [], deniedDomains: [] },
+        network: { allowedDomains: ["models.dev"], deniedDomains: [] },
         filesystem: {
           denyRead: ["/tmp", "/private/tmp"],
           allowRead: [
@@ -103,7 +104,22 @@ test(
         fs.writeFileSync(${JSON.stringify(path.join(state, "allowed"))}, 'yes');
         fs.writeFileSync(${JSON.stringify(auth)}, 'refreshed');
         ${mode === "review" ? "blocked(() => " : ""}fs.writeFileSync(${JSON.stringify(source)}, 'yes')${mode === "review" ? ")" : ""};
-        process.stdout.write(process.env.TMPDIR);
+        // A blocked CONNECT must reach the proxy and receive its denial, even
+        // when /tmp is hidden. A hidden bridge socket closes without a reply.
+        const proxy = new URL(process.env.HTTP_PROXY);
+        const request = require('node:http').request({
+          hostname: proxy.hostname, port: proxy.port, method: 'CONNECT',
+          path: 'blocked.invalid:443',
+          headers: {'Proxy-Authorization': 'Basic ' + Buffer.from(decodeURIComponent(proxy.username) + ':' + decodeURIComponent(proxy.password)).toString('base64')},
+        });
+        request.on('error', error => { throw error; });
+        request.setTimeout(5000, () => request.destroy(new Error('proxy timed out')));
+        request.on('connect', (response, socket) => {
+          socket.destroy();
+          require('node:assert/strict').equal(response.statusCode, 403);
+          process.stdout.write(process.env.TMPDIR);
+        });
+        request.end();
       `;
         // Keep the worker's SRT/env prefix, replacing only the agent invocation.
         const args = command(job);
